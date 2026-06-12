@@ -1,6 +1,7 @@
 // @desc Tests for NpcEventQueue: dialog protection and phase event buffering
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NpcEventQueue, calcDialogDuration } from '../NpcEventQueue.js'
+import type { GameEvent } from '../../../town-frontend/src/data/GameProtocol.js'
 
 describe('calcDialogDuration', () => {
   it('returns minimum 1500 for very short text', () => {
@@ -19,12 +20,12 @@ describe('calcDialogDuration', () => {
 })
 
 describe('NpcEventQueue', () => {
-  let emitFn: ReturnType<typeof vi.fn>
+  let emitFn: ReturnType<typeof vi.fn<(events: GameEvent[]) => void>>
   let queue: NpcEventQueue
 
   beforeEach(() => {
     vi.useFakeTimers()
-    emitFn = vi.fn()
+    emitFn = vi.fn<(events: GameEvent[]) => void>()
     queue = new NpcEventQueue(emitFn)
   })
 

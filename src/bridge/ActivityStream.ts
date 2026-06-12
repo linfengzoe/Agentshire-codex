@@ -99,14 +99,14 @@ export class ActivityStream {
   toolActivityIcon(toolName: string): string {
     if (toolName === '__thinking__') return 'sparkles'
     if (toolName === '__thinking_placeholder__') return 'sparkles'
-    if (toolName === 'bash' || toolName === 'exec') return 'terminal'
+    if (toolName === 'bash' || toolName === 'exec' || toolName === 'shell_command') return 'terminal'
     if (['read', 'read_file', 'grep', 'glob'].includes(toolName)) return 'file-search'
-    if (['write', 'edit', 'write_file', 'edit_file'].includes(toolName)) return 'file-edit'
+    if (['write', 'edit', 'write_file', 'edit_file', 'apply_patch'].includes(toolName)) return 'file-edit'
     if (toolName === 'web_search' || toolName === 'web_fetch') return 'globe'
-    if (toolName === 'browser') return 'globe'
+    if (toolName === 'browser' || toolName.startsWith('browser_')) return 'globe'
     if (toolName === 'process') return 'terminal'
     if (toolName === 'skill') return 'zap'
-    if (toolName === 'spawn_agent' || toolName === 'sessions_spawn') return 'users'
+    if (toolName === 'spawn_agent' || toolName === 'sessions_spawn' || toolName === 'wait_agent') return 'users'
     if (toolName === 'todo_write') return 'list-checks'
     return 'wrench'
   }
@@ -121,13 +121,15 @@ export class ActivityStream {
       return `思考完成\n${preview}`
     }
     if (toolName === '__thinking_placeholder__') return '正在思考'
-    if (toolName === 'bash' || toolName === 'exec') {
+    if (toolName === 'bash' || toolName === 'exec' || toolName === 'shell_command') {
       const cmd = String(inp.command ?? '').trim()
       if (/\b(pnpm|npm|yarn)\s+(install|i|ci)\b/.test(cmd)) return '安装依赖'
       if (/\b(git\s+clone|cp\s+-r|rsync)\b/.test(cmd)) return '克隆项目'
       if (/\bmkdir\b/.test(cmd)) return '创建目录'
       if (/\b(rm|rmdir)\b/.test(cmd)) return '删除文件'
-      if (/\b(pnpm|npm|yarn|npx)\s+(run|exec|start|dev|build|test)\b/.test(cmd)) return '运行脚本'
+      if (/\b(pnpm|npm|yarn|npx)\s+(run\s+)?test\b|\bvitest\b/.test(cmd)) return '运行测试'
+      if (/\b(pnpm|npm|yarn|npx)\s+(run\s+)?build\b|\btsc\b|\bvite\s+build\b/.test(cmd)) return '构建项目'
+      if (/\b(pnpm|npm|yarn|npx)\s+(run|exec|start|dev)\b/.test(cmd)) return '运行脚本'
       if (/\b(node|ts-node|tsx)\b/.test(cmd)) return '运行脚本'
       if (/\b(cat|head|tail|less|more)\b/.test(cmd)) return '查看文件'
       if (/\bls\b/.test(cmd)) return '查看目录'
@@ -147,9 +149,11 @@ export class ActivityStream {
       const writePath = String(inp.path ?? inp.file ?? '').split('/').pop() ?? ''
       return `编辑 ${writePath || '文件'}`
     }
+    if (toolName === 'apply_patch') return '编辑代码'
     if (toolName === 'web_search') return '搜索网络'
     if (toolName === 'web_fetch') return '访问网页'
     if (toolName === 'browser') return '浏览器操作'
+    if (toolName.startsWith('browser_')) return '浏览器检查'
     if (toolName === 'process') {
       const action = String(inp.action ?? '')
       if (action === 'poll') return '等待进程完成'
@@ -165,6 +169,7 @@ export class ActivityStream {
       const name = String(inp.name ?? inp.displayName ?? inp.label ?? '').slice(0, 15)
       return `召唤 ${name || '居民'}`
     }
+    if (toolName === 'wait_agent') return '同步子代理'
     if (toolName === 'todo_write') return ''
     return `使用工具：${toolName}`
   }

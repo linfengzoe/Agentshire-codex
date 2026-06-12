@@ -43,6 +43,25 @@ function scheduleNudge(townSessionId: string): void {
 
 export { agentTownPlugin } from "./src/plugin/channel.js";
 export { setTownRuntime } from "./src/plugin/runtime.js";
+export {
+  codexEventToAgentEvent,
+  createCodexAdapter,
+  type CodexAdapter,
+  type CodexAdapterEvent,
+  type CodexAdapterOptions,
+} from "./src/plugin/codex-adapter.js";
+export {
+  CodexSessionLogMapper,
+  findLatestCodexSessionLog,
+  parseCodexSessionLogLine,
+  truncateForTown,
+  type CodexSessionLogRecord,
+} from "./src/plugin/codex-session-log.js";
+export {
+  startCodexSessionVisualizerWsServer,
+  type CodexSessionVisualizerWsServer,
+  type CodexSessionVisualizerWsServerOptions,
+} from "./src/plugin/codex-session-visualizer.js";
 export { loadTownSoul, listTownSouls } from "./src/town-souls.js";
 export type { TownSoul } from "./src/town-souls.js";
 

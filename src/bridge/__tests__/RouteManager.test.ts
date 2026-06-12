@@ -1,6 +1,7 @@
 // @desc Tests for RouteManager: A* pathfinding and NPC movement
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RouteManager } from '../RouteManager.js'
+import type { GameEvent } from '../../../town-frontend/src/data/GameProtocol.js'
 
 vi.mock('../data/route-config.js', () => ({
   CITIZEN_DESTINATION_POINTS: [
@@ -23,11 +24,11 @@ vi.mock('../data/route-config.js', () => ({
 }))
 
 describe('RouteManager', () => {
-  let emitFn: ReturnType<typeof vi.fn>
+  let emitFn: ReturnType<typeof vi.fn<(events: GameEvent[]) => void>>
   let rm: RouteManager
 
   beforeEach(() => {
-    emitFn = vi.fn()
+    emitFn = vi.fn<(events: GameEvent[]) => void>()
     rm = new RouteManager(emitFn)
   })
 
@@ -97,8 +98,10 @@ describe('RouteManager', () => {
     it('resolves as arrived when resolveMoveRequest is called', async () => {
       const promise = rm.moveNpcAndWait('npc1', { x: 0, y: 0, z: 0 }, 5, 5000)
 
-      const requestId = emitFn.mock.calls[0][0][0].requestId
-      rm.resolveMoveRequest(requestId, 'npc1', 'arrived')
+      const moveEvent = emitFn.mock.calls[0][0][0] as Extract<GameEvent, { type: 'npc_move_to' }>
+      const requestId = moveEvent.requestId
+      expect(requestId).toBeDefined()
+      rm.resolveMoveRequest(requestId!, 'npc1', 'arrived')
 
       await expect(promise).resolves.toBe('arrived')
     })

@@ -1,14 +1,15 @@
 // @desc Tests for ActivityStream: thinking buffer and activity log
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ActivityStream } from '../ActivityStream.js'
+import type { GameEvent } from '../../../town-frontend/src/data/GameProtocol.js'
 
 describe('ActivityStream', () => {
-  let emitFn: ReturnType<typeof vi.fn>
+  let emitFn: ReturnType<typeof vi.fn<(events: GameEvent[]) => void>>
   let stream: ActivityStream
 
   beforeEach(() => {
     vi.useFakeTimers()
-    emitFn = vi.fn()
+    emitFn = vi.fn<(events: GameEvent[]) => void>()
     stream = new ActivityStream(emitFn)
   })
 
