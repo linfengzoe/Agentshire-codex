@@ -34,7 +34,7 @@ export class ProjectDashboardTracker {
   private subagents = new Map<string, CodexProjectSubagent>()
   private runningTools = new Map<string, CodexProjectToolStatus>()
 
-  applyAgentEvent(event: AgentEvent, context?: { npcId?: string }): GameEvent[] {
+  applyAgentEvent(event: AgentEvent, context?: { npcId?: string; displayName?: string }): GameEvent[] {
     this.apply(event, context)
     return [{ type: 'project_dashboard_update', state: this.snapshot() }]
   }
@@ -49,9 +49,9 @@ export class ProjectDashboardTracker {
     }
   }
 
-  private apply(event: AgentEvent, context?: { npcId?: string }): void {
+  private apply(event: AgentEvent, context?: { npcId?: string; displayName?: string }): void {
     if (event.type === 'sub_agent') {
-      this.applySubagent(event)
+      this.applySubagent(event, context)
       if (event.subtype === 'progress') this.apply(event.event, { npcId: this.subagents.get(event.agentId)?.npcId })
       return
     }
@@ -109,12 +109,12 @@ export class ProjectDashboardTracker {
     }
   }
 
-  private applySubagent(event: Extract<AgentEvent, { type: 'sub_agent' }>): void {
+  private applySubagent(event: Extract<AgentEvent, { type: 'sub_agent' }>, context?: { npcId?: string; displayName?: string }): void {
     if (event.subtype === 'started') {
       const agent: CodexProjectSubagent = {
         agentId: event.agentId,
-        npcId: event.agentId.replace(/^agent_/, ''),
-        displayName: event.displayName ?? event.agentId.replace(/^agent_/, ''),
+        npcId: context?.npcId ?? event.agentId.replace(/^agent_/, ''),
+        displayName: context?.displayName ?? event.displayName ?? event.agentId.replace(/^agent_/, ''),
         role: inferCodexSubagentRole(event.agentType, event.task, event.displayName),
         status: 'running',
       }

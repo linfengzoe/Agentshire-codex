@@ -64,6 +64,36 @@ describe('DirectorBridge workstation orchestration', () => {
     expect(goOffice?.agents[0].stationId).not.toBe(goOffice?.agents[1].stationId)
   })
 
+  it('uses the actual spawned town NPC id in project dashboard subagent rows', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: '019ebd1a-23a3-7423-98b2-e486b56a0030',
+      agentType: 'worker',
+      parentToolUseId: 'spawn-uuid',
+      task: '实现 Codex 工位屏幕',
+      model: 'gpt-5',
+      displayName: 'Heisenberg',
+    })
+
+    const spawn = emitted.find((e): e is Extract<GameEvent, { type: 'npc_spawn' }> => e.type === 'npc_spawn' && e.npcId === '019ebd1a-23a3-7423-98b2-e486b56a0030')
+    const dashboardEvents = emitted.filter((e): e is Extract<GameEvent, { type: 'project_dashboard_update' }> => e.type === 'project_dashboard_update')
+    const dashboard = dashboardEvents[dashboardEvents.length - 1]
+
+    expect(spawn?.npcId).toBeTruthy()
+    expect(spawn?.name).toContain('Heisenberg')
+    expect(dashboard?.state.subagents[0]).toMatchObject({
+      agentId: '019ebd1a-23a3-7423-98b2-e486b56a0030',
+      npcId: spawn!.npcId,
+      displayName: expect.stringContaining('Heisenberg'),
+      status: 'running',
+    })
+  })
+
   it('updates each subagent workstation screen from that subagent tool stream', () => {
     const bridge = new DirectorBridge()
     const emitted: GameEvent[] = []

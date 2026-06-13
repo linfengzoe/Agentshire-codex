@@ -270,7 +270,10 @@ export class CitizenManager {
   }
 
   looksLikeIdFragment(name: string): boolean {
-    return /^[a-z0-9_\- ]{1,12}$/i.test(name) && !/[\u4e00-\u9fa5]/.test(name)
+    const normalized = name.trim().replace(/\s+/g, '')
+    if (!normalized || /[\u4e00-\u9fa5]/.test(normalized)) return false
+    if (/^[a-f0-9]{8,}$/i.test(normalized)) return true
+    return /^[a-f0-9]{4,}(?:[-_][a-f0-9]{2,})+$/i.test(normalized)
   }
 
   isPersonaPath(filePath: string | null): boolean {

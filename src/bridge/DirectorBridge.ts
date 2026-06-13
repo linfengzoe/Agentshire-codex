@@ -399,9 +399,9 @@ export class DirectorBridge {
 
   /** Main entry point: dispatch an AgentEvent to the appropriate handler based on type */
   processAgentEvent(event: AgentEvent): void {
-    const dashboardEvents = this.projectDashboard.applyAgentEvent(event)
-    this.emit(dashboardEvents)
-    this.emitProjectPhaseCue(dashboardEvents)
+    if (event.type !== 'sub_agent') {
+      this.emitDashboardForEvent(event)
+    }
     if (event.type !== 'text_delta' && event.type !== 'thinking_delta' && event.type !== 'tool_input_delta') {
       console.log('[DirectorBridge] event:', event.type, 'phase:', this.phase, 'name' in event ? (event as { name?: string }).name ?? '' : '')
     }
@@ -591,6 +591,12 @@ export class DirectorBridge {
         this.emit(this.translator.translate(event))
         return
     }
+  }
+
+  private emitDashboardForEvent(event: AgentEvent, context?: { npcId?: string; displayName?: string }): void {
+    const dashboardEvents = this.projectDashboard.applyAgentEvent(event, context)
+    this.emit(dashboardEvents)
+    this.emitProjectPhaseCue(dashboardEvents)
   }
 
   private emitProjectPhaseCue(events: GameEvent[]): void {
@@ -903,6 +909,7 @@ export class DirectorBridge {
       const info: AgentInfo = { agentId, npcId, displayName, task, status: 'pending', avatarId, collaborationRole }
       this.agents.set(agentId, info)
       this.agentOrder.push(agentId)
+      this.emitDashboardForEvent(event, { npcId: info.npcId, displayName: info.displayName })
 
       if (this.phase === 'idle') {
         this.phase = 'summoning'
@@ -956,6 +963,7 @@ export class DirectorBridge {
       const info = this.agents.get(agentId)
       if (!info) return
       const npcId = info.npcId
+      this.emitDashboardForEvent(event, { npcId: info.npcId, displayName: info.displayName })
       const inner = event.event
       if (!inner) return
       const q = this.getQueue(npcId)
@@ -1066,6 +1074,7 @@ export class DirectorBridge {
       const isError = event.status === 'failed'
 
       info.status = isError ? 'failed' : 'completed'
+      this.emitDashboardForEvent(event, { npcId: info.npcId, displayName: info.displayName })
       const station = this.tracker.getAllNpcStates().find(s => s.npcId === npcId)?.stationId
       const isTempWorker = this.tempWorkerNpcIds.has(npcId)
 

@@ -77,17 +77,19 @@ describe('CitizenManager', () => {
   })
 
   describe('looksLikeIdFragment', () => {
-    it('returns true for short ASCII strings', () => {
-      expect(cm.looksLikeIdFragment('abc123')).toBe(true)
-      expect(cm.looksLikeIdFragment('npc-1')).toBe(true)
-      expect(cm.looksLikeIdFragment('a')).toBe(true)
+    it('returns true for hex-like generated id fragments', () => {
+      expect(cm.looksLikeIdFragment('019ebd1a')).toBe(true)
+      expect(cm.looksLikeIdFragment('019ebd1a-23a3')).toBe(true)
     })
 
-    it('returns false for strings with Chinese characters', () => {
+    it('returns false for human-readable names', () => {
       expect(cm.looksLikeIdFragment('小明')).toBe(false)
+      expect(cm.looksLikeIdFragment('Heisenberg')).toBe(false)
+      expect(cm.looksLikeIdFragment('npc-1')).toBe(false)
+      expect(cm.looksLikeIdFragment('a')).toBe(false)
     })
 
-    it('returns false for strings longer than 12 characters', () => {
+    it('returns false for long non-hex strings', () => {
       expect(cm.looksLikeIdFragment('abcdefghijklm')).toBe(false)
     })
   })
