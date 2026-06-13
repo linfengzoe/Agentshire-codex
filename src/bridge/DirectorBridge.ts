@@ -21,7 +21,8 @@ import {
 
 type Phase = 'idle' | 'summoning' | 'assigning' | 'going_to_office' | 'working' | 'publishing' | 'returning'
 
-function isToolSuccess(name: string, output: string): boolean {
+function isToolSuccess(name: string, output: string, meta?: { exitCode?: number }): boolean {
+  if (typeof meta?.exitCode === 'number') return meta.exitCode === 0
   if (['read', 'read_file', 'grep', 'glob'].includes(name)) return true
   if (['write', 'write_file', 'edit', 'edit_file'].includes(name)) return /^Successfully/.test(output)
   const errorPatterns = [
@@ -76,6 +77,7 @@ export class DirectorBridge {
   private systemInitReceived = false
   private workflowSummonEmitted = false
   private lastProjectPhase: CodexProjectPhase | null = null
+  private debugStoryActive = false
   private npcCharacterAssignments = new Map<string, string>([
     ['user', getCharacterKeyForNpc('user')],
     ['steward', getCharacterKeyForNpc('steward')],
@@ -458,19 +460,15 @@ export class DirectorBridge {
       case 'tool_result':
         console.log('[DirectorBridge] tool_result:', event.name, 'phase:', this.phase)
         {
-          const success = isToolSuccess(event.name ?? '', event.output ?? '')
+          const success = isToolSuccess(event.name ?? '', event.output ?? '', event.meta)
           this.activity.emitActivityStatus(this.stewardName, success)
           const debugRelevant = isDebugRelevantTool(event.name ?? '', this.lastToolInput)
           const statusEvents = toolResultToVfxEvents(event.name ?? '', this.stewardName, this.lastToolInput, success)
           if (statusEvents.length > 0) this.emit(statusEvents)
           if (debugRelevant && !success) {
-            this.emit([
-              { type: 'npc_phase', npcId: this.stewardName, phase: 'error' },
-              { type: 'npc_emote', npcId: this.stewardName, emote: 'frustrated' },
-              { type: 'fx', effect: 'error_sparks', params: { npcId: this.stewardName } },
-            ])
+            this.emitDebugStory(false)
           } else if (debugRelevant && success) {
-            this.emit([{ type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' }])
+            this.emitDebugStory(true)
           }
         }
         void this.citizens.detectPersonaSwitch(event)
@@ -592,6 +590,57 @@ export class DirectorBridge {
     this.emit(projectPhaseToTownEvents(phase, this.stewardName))
   }
 
+  private activeTeamNpcIds(): string[] {
+    const ids = [this.stewardName]
+    for (const agentId of this.agentOrder) {
+      const info = this.agents.get(agentId)
+      if (!info || info.status === 'completed') continue
+      ids.push(info.npcId)
+    }
+    return [...new Set(ids)]
+  }
+
+  private emitDebugStory(recovered: boolean): void {
+    const team = this.activeTeamNpcIds()
+    if (recovered) {
+      if (!this.debugStoryActive) {
+        this.emit([{ type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' }])
+        return
+      }
+      this.debugStoryActive = false
+      const events: GameEvent[] = [
+        { type: 'dialog_message', npcId: this.stewardName, text: '验证恢复，团队切回绿色状态。', isStreaming: false },
+      ]
+      for (const npcId of team) {
+        events.push(
+          { type: 'npc_phase', npcId, phase: npcId === this.stewardName ? 'thinking' : 'working' },
+          { type: 'npc_glow', npcId, color: 'green' },
+          { type: 'npc_emoji', npcId, emoji: npcId === this.stewardName ? '✅' : 'working' },
+        )
+      }
+      this.emit(events)
+      return
+    }
+
+    this.debugStoryActive = true
+    const command = String(this.lastToolInput.command ?? this.lastToolInput.name ?? '')
+    const label = command ? `：${command.slice(0, 80)}` : ''
+    const events: GameEvent[] = [
+      { type: 'dialog_message', npcId: this.stewardName, text: `测试/构建失败，团队先集中定位${label}`, isStreaming: false },
+    ]
+    for (const npcId of team) {
+      events.push(
+        { type: 'npc_phase', npcId, phase: 'error' },
+        { type: 'npc_glow', npcId, color: 'red' },
+        { type: 'npc_emoji', npcId, emoji: '🚨' },
+        { type: 'npc_look_at', npcId, targetNpcId: this.stewardName },
+        { type: 'fx', effect: 'error_sparks', params: { npcId } },
+      )
+    }
+    events.push({ type: 'npc_emote', npcId: this.stewardName, emote: 'frustrated' })
+    this.emit(events)
+  }
+
   processCitizenEvent(npcId: string, event: AgentEvent): void {
     const q = this.getQueue(npcId)
     switch (event.type) {
@@ -614,7 +663,7 @@ export class DirectorBridge {
         return
       case 'tool_result':
         {
-          const success = isToolSuccess(event.name ?? '', event.output ?? '')
+          const success = isToolSuccess(event.name ?? '', event.output ?? '', event.meta)
           this.activity.emitActivityStatus(npcId, success)
           const statusEvents = toolResultToVfxEvents(event.name ?? '', npcId, {}, success)
           if (statusEvents.length > 0) this.emit(statusEvents)
@@ -830,7 +879,7 @@ export class DirectorBridge {
         case 'tool_result': {
           const isThinkingResult = inner.name === '__thinking__'
           if (!isThinkingResult) {
-            const success = isToolSuccess(inner.name ?? '', inner.output ?? '')
+            const success = isToolSuccess(inner.name ?? '', inner.output ?? '', inner.meta)
             this.activity.emitActivityStatus(npcId, success)
             const statusEvents = toolResultToVfxEvents(inner.name ?? '', npcId, {}, success)
             if (statusEvents.length > 0) this.emit(statusEvents)
