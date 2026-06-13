@@ -27,6 +27,26 @@ describe('DirectorBridge workstation orchestration', () => {
     })
   })
 
+  it('shows the real file name on desk screens for raw Codex apply_patch arguments', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'patch-raw-1',
+      name: 'apply_patch',
+      input: { arguments: '*** Begin Patch\n*** Update File: src/bridge/ProjectDashboardTracker.ts\n*** End Patch\n' },
+    })
+
+    const assignment = emitted.find((e): e is Extract<GameEvent, { type: 'workstation_assign' }> => e.type === 'workstation_assign' && e.npcId === 'steward')
+    expect(emitted).toContainEqual({
+      type: 'workstation_screen',
+      stationId: assignment!.stationId,
+      state: { mode: 'coding', fileName: 'ProjectDashboardTracker.ts' },
+    })
+  })
+
   it('passes Bridge-assigned workstation ids into the office workflow', () => {
     const bridge = new DirectorBridge()
     const emitted: GameEvent[] = []
