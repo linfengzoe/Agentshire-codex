@@ -1,7 +1,7 @@
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 import { EventTranslator } from './EventTranslator.js'
-import type { CodexProjectPhase, GameEvent, NPCPhase } from '../../town-frontend/src/data/GameProtocol.js'
+import type { CodexProjectPhase, GameEvent, NPCPhase, ScreenState } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'
 import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
@@ -71,6 +71,7 @@ export class DirectorBridge {
   private npcQueues = new Map<string, NpcEventQueue>()
   private progressRingId: number | null = null
   private lastToolInput: Record<string, unknown> = {}
+  private lastToolInputByNpc = new Map<string, { name: string; input: Record<string, unknown> }>()
   private pendingProjectName = ''
   private pendingProjectType = ''
   private bubbleDebugEnabled = this.readBubbleDebugFlag()
@@ -240,7 +241,7 @@ export class DirectorBridge {
           const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
           this.emit([
             { type: 'mode_change', mode: 'work', workSubState: 'going_to_office' },
-            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId, role: a.collaborationRole })) } as GameEvent,
+            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId, stationId: this.ensureWorkstationForNpc(a.npcId, a.collaborationRole, false) ?? undefined, role: a.collaborationRole })) } as GameEvent,
           ])
         } else if (completedPhase === 'going_to_office' && this.phase === 'going_to_office') {
           this.phase = 'working'
@@ -271,6 +272,7 @@ export class DirectorBridge {
           this.tracker.clear()
           this.pendingProjectName = ''
           this.pendingProjectType = ''
+          this.lastToolInputByNpc.clear()
           if (this.citizens.pendingStewardRenameTimer) {
             clearTimeout(this.citizens.pendingStewardRenameTimer)
             this.citizens.pendingStewardRenameTimer = null
@@ -443,6 +445,13 @@ export class DirectorBridge {
         console.log('[DirectorBridge] tool_use:', event.name, 'phase:', this.phase, 'toolCount:', this.activeToolCount)
         this.activity.flushThinking(this.stewardName)
         this.lastToolInput = event.input ?? {}
+        if ((event.name ?? '') === 'wait_agent') {
+          this.emitWaitAgentSyncStory()
+        }
+        if (this.agents.size === 0) {
+          this.ensureSoloStewardWorkstation()
+          this.emitWorkstationScreenForTool(this.stewardName, event.name ?? '', event.input ?? {})
+        }
         if (this.activity.isTodoWrite(event.name ?? '')) {
           this.activity.emitTodoActivity(this.stewardName, event.input ?? {})
         } else {
@@ -465,6 +474,9 @@ export class DirectorBridge {
           const debugRelevant = isDebugRelevantTool(event.name ?? '', this.lastToolInput)
           const statusEvents = toolResultToVfxEvents(event.name ?? '', this.stewardName, this.lastToolInput, success)
           if (statusEvents.length > 0) this.emit(statusEvents)
+          if (this.agents.size === 0) {
+            this.emitWorkstationScreenForResult(this.stewardName, event.name ?? '', this.lastToolInput, success)
+          }
           if (debugRelevant && !success) {
             this.emitDebugStory(false)
           } else if (debugRelevant && success) {
@@ -598,6 +610,88 @@ export class DirectorBridge {
       ids.push(info.npcId)
     }
     return [...new Set(ids)]
+  }
+
+  private ensureWorkstationForNpc(npcId: string, role?: CodexSubagentRole, emitAssign = true): string | null {
+    const existing = this.tracker.getStationForNpc(npcId)
+    if (existing) return existing
+    const stationId = this.tracker.allocateStation(getCodexSubagentRoleProfile(role ?? 'Worker').stationPreference)
+    if (!stationId) return null
+    this.tracker.setStationForNpc(npcId, stationId)
+    if (emitAssign) {
+      this.emit([{ type: 'workstation_assign', npcId, stationId }])
+    }
+    return stationId
+  }
+
+  private ensureSoloStewardWorkstation(): string | null {
+    const alreadyAssigned = !!this.tracker.getStationForNpc(this.stewardName)
+    const stationId = this.ensureWorkstationForNpc(this.stewardName, 'Worker')
+    if (!stationId) return null
+    if (!alreadyAssigned) {
+      this.emit([
+        { type: 'scene_switch', target: 'office' },
+        { type: 'mode_change', mode: 'work', workSubState: 'working' },
+      ])
+    }
+    return stationId
+  }
+
+  private screenStateForTool(toolName: string, input: Record<string, unknown> = {}): ScreenState {
+    const filePath = extractFilePath(toolName, input)
+    const fileName = filePath?.split(/[\\/]/).pop() ?? ''
+    if (fileName && ['read', 'read_file', 'write', 'write_file', 'edit', 'edit_file', 'apply_patch'].includes(toolName)) {
+      return { mode: 'coding', fileName }
+    }
+    if (toolName === 'apply_patch') return { mode: 'coding', fileName: 'patch' }
+    if (toolName === 'bash' || toolName === 'shell_command') {
+      const command = String(input.command ?? '')
+      if (/\b(vitest|npm\s+test|pnpm\s+test|yarn\s+test|test|spec)\b/i.test(command)) return { mode: 'waiting', label: 'test' }
+      if (/\b(tsc|build|lint|typecheck|preview)\b/i.test(command)) return { mode: 'waiting', label: 'build' }
+      return { mode: 'waiting', label: command.slice(0, 22) || 'terminal' }
+    }
+    if (toolName === 'browser' || toolName.startsWith('browser_') || toolName === 'web_search' || toolName === 'web_fetch') {
+      return { mode: 'waiting', label: 'browser' }
+    }
+    if (toolName === 'wait_agent') return { mode: 'waiting', label: 'sync' }
+    if (toolName === 'spawn_agent' || toolName === 'sessions_spawn') return { mode: 'waiting', label: 'spawn' }
+    return { mode: 'thinking' }
+  }
+
+  private emitWorkstationScreenForTool(npcId: string, toolName: string, input: Record<string, unknown> = {}): void {
+    const stationId = this.tracker.getStationForNpc(npcId)
+    if (!stationId) return
+    this.emit([{ type: 'workstation_screen', stationId, state: this.screenStateForTool(toolName, input) }])
+  }
+
+  private emitWorkstationScreenForResult(npcId: string, toolName: string, input: Record<string, unknown>, success: boolean): void {
+    const stationId = this.tracker.getStationForNpc(npcId)
+    if (!stationId) return
+    if (!isDebugRelevantTool(toolName, input) && !['apply_patch', 'write', 'write_file', 'edit', 'edit_file'].includes(toolName)) return
+    this.emit([{ type: 'workstation_screen', stationId, state: success ? { mode: 'done' } : { mode: 'error' } }])
+  }
+
+  private emitWaitAgentSyncStory(): void {
+    const team = this.activeTeamNpcIds()
+    const events: GameEvent[] = [
+      { type: 'dialog_message', npcId: this.stewardName, text: '正在同步子代理进度。', isStreaming: false },
+      { type: 'camera_move', target: { x: 24, y: 0, z: 19 }, follow: this.stewardName, durationMs: 700 },
+      { type: 'fx', effect: 'statusLight', params: { npcId: this.stewardName, status: 'running', label: 'sync' } },
+    ]
+    for (const npcId of team) {
+      events.push(
+        { type: 'npc_phase', npcId, phase: npcId === this.stewardName ? 'thinking' : 'waiting' },
+        { type: 'npc_emoji', npcId, emoji: '👥' },
+      )
+    }
+    for (const npcId of team) {
+      if (npcId === this.stewardName) continue
+      events.push(
+        { type: 'npc_look_at', npcId, targetNpcId: this.stewardName },
+        { type: 'fx', effect: 'connectionBeam', params: { fromNpcId: this.stewardName, toNpcId: npcId } },
+      )
+    }
+    this.emit(events)
   }
 
   private emitDebugStory(recovered: boolean): void {
@@ -886,6 +980,10 @@ export class DirectorBridge {
           } else {
             this.activity.emitActivity(npcId, this.activity.toolActivityIcon(inner.name), this.activity.toolActivityMsg(inner.name, inner.input ?? {}), isThinking)
           }
+          if (!isThinking) {
+            this.lastToolInputByNpc.set(npcId, { name: inner.name, input: inner.input ?? {} })
+            this.emitWorkstationScreenForTool(npcId, inner.name, inner.input ?? {})
+          }
           if (!isThinking && canDriveNpcWorkingState) {
             const toolEmojiStr = toolEmoji(inner.name)
             q.enqueuePhase([
@@ -900,8 +998,11 @@ export class DirectorBridge {
           if (!isThinkingResult) {
             const success = isToolSuccess(inner.name ?? '', inner.output ?? '', inner.meta)
             this.activity.emitActivityStatus(npcId, success)
-            const statusEvents = toolResultToVfxEvents(inner.name ?? '', npcId, {}, success)
+            const lastTool = this.lastToolInputByNpc.get(npcId)
+            const resultInput = lastTool?.name === inner.name ? lastTool.input : {}
+            const statusEvents = toolResultToVfxEvents(inner.name ?? '', npcId, resultInput, success)
             if (statusEvents.length > 0) this.emit(statusEvents)
+            this.emitWorkstationScreenForResult(npcId, inner.name ?? '', resultInput, success)
           }
           if (inWorkPhase) {
             q.enqueuePhase([{ type: 'npc_emoji', npcId, emoji: null }])
@@ -979,6 +1080,7 @@ export class DirectorBridge {
       if (isTempWorker) {
         this.tempWorkerNpcIds.delete(npcId)
       }
+      this.lastToolInputByNpc.delete(npcId)
 
       const doneCount = [...this.agents.values()].filter(a => a.status === 'completed' || a.status === 'failed').length
       const totalCount = this.agents.size

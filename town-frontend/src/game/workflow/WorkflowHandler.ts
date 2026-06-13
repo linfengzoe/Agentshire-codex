@@ -283,7 +283,7 @@ export class WorkflowHandler {
     })
   }
 
-  async startOfficeWork(steward: NPC, npcs: NPC[], agentMeta: Array<{ npcId: string; role?: CodexSubagentRole }> = []): Promise<void> {
+  async startOfficeWork(steward: NPC, npcs: NPC[], agentMeta: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole }> = []): Promise<void> {
     const { npcManager, officeBuilder, modeManager } = this.deps
     const DOOR_POS = { x: 15, z: 24 }
     const SUPERVISOR = { steward: { x: 15, z: 12 }, mayor: { x: 18, z: 18 } }
@@ -293,8 +293,14 @@ export class WorkflowHandler {
     this.firstBatchNpcIds = new Set(npcs.map(n => n.id))
     const usedStations = new Set<string>()
     const roleByNpc = new Map(agentMeta.map(a => [a.npcId, a.role]))
+    const stationByNpc = new Map(agentMeta
+      .filter((a): a is { npcId: string; stationId: string; role?: CodexSubagentRole } => typeof a.stationId === 'string' && a.stationId.length > 0)
+      .map(a => [a.npcId, a.stationId]))
     for (let i = 0; i < npcs.length; i++) {
-      const stationId = this.pickStationForRole(roleByNpc.get(npcs[i].id), usedStations)
+      const preferredStation = stationByNpc.get(npcs[i].id)
+      const stationId = preferredStation && !usedStations.has(preferredStation)
+        ? preferredStation
+        : this.pickStationForRole(roleByNpc.get(npcs[i].id), usedStations)
       this.officeNpcStations.set(npcs[i].id, stationId)
       usedStations.add(stationId)
     }
