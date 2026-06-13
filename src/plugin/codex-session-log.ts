@@ -46,6 +46,13 @@ function parseInput(raw: unknown): Record<string, unknown> {
   }
 }
 
+function normalizeToolInput(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  if (name === "apply_patch" && typeof input.arguments === "string" && typeof input.patch !== "string") {
+    return { ...input, patch: input.arguments };
+  }
+  return input;
+}
+
 function extractAssistantText(payload: Record<string, unknown>): string {
   const content = Array.isArray(payload.content) ? payload.content : [];
   const parts: string[] = [];
@@ -223,7 +230,7 @@ export class CodexSessionLogMapper {
       case "custom_tool_call": {
         const toolCallId = asText(payload.call_id ?? payload.id);
         const name = asText(payload.name) || "unknown";
-        const input = parseInput(payload.arguments ?? payload.input);
+        const input = normalizeToolInput(name, parseInput(payload.arguments ?? payload.input));
         const agentId = extractControlToolAgentId(name, input);
         const trackedAgentId = agentId && this.subagents.has(agentId) ? agentId : undefined;
         if (toolCallId) this.tools.set(toolCallId, { name, input, agentId: trackedAgentId });

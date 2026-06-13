@@ -19,6 +19,8 @@ describe('ToolVfxMapper Codex tools', () => {
       .toBe('src/plugin/codex-session-log.ts')
     expect(extractFilePath('apply_patch', { patch: '*** Update File: src/bridge/ToolVfxMapper.ts\n' }))
       .toBe('src/bridge/ToolVfxMapper.ts')
+    expect(extractFilePath('apply_patch', { arguments: '*** Begin Patch\n*** Add File: src/plugin/codex-session-log.ts\n*** End Patch\n' }))
+      .toBe('src/plugin/codex-session-log.ts')
   })
 
   it('maps apply_patch to construction-style edit VFX', () => {

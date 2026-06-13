@@ -87,6 +87,31 @@ describe('CodexSessionLogMapper', () => {
     ])
   })
 
+  it('normalizes raw custom apply_patch calls so town surfaces can read patch paths', () => {
+    const mapper = new CodexSessionLogMapper()
+    const patch = '*** Begin Patch\n*** Update File: src/bridge/DirectorBridge.ts\n@@\n-old\n+new\n*** End Patch\n'
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        call_id: 'patch-call-1',
+        name: 'apply_patch',
+        input: patch,
+      },
+    })).toEqual([
+      {
+        type: 'tool.started',
+        toolCallId: 'patch-call-1',
+        name: 'apply_patch',
+        input: {
+          arguments: patch,
+          patch,
+        },
+      },
+    ])
+  })
+
   it('promotes spawn_agent output to a subagent.started event', () => {
     const mapper = new CodexSessionLogMapper()
 

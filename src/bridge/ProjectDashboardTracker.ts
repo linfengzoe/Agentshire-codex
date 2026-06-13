@@ -189,7 +189,7 @@ function extractRecentFile(name: string, input: Record<string, unknown>): string
   const direct = input.path ?? input.file ?? input.filePath
   if (typeof direct === 'string' && direct.trim()) return direct.trim()
   if (name === 'apply_patch') {
-    const patch = String(input.patch ?? '')
+    const patch = String(input.patch ?? input.arguments ?? '')
     const match = patch.match(/\*\*\* (?:Update|Add) File:\s+([^\r\n]+)/)
     return match?.[1]?.trim() ?? null
   }

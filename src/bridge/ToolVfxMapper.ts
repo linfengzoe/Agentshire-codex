@@ -14,7 +14,7 @@ export function extractFilePath(toolName: string, input: Record<string, unknown>
   const FILE_TOOLS = new Set(['read', 'read_file', 'write', 'write_file', 'edit', 'edit_file'])
   if (FILE_TOOLS.has(toolName)) return (input.path ?? input.file) as string | null
   if (toolName === 'apply_patch') {
-    const patch = String(input.patch ?? '')
+    const patch = String(input.patch ?? input.arguments ?? '')
     const match = patch.match(/\*\*\* (?:Update|Add) File:\s+([^\r\n]+)/)
     return match?.[1]?.trim() ?? null
   }

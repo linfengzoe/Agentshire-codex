@@ -42,6 +42,22 @@ describe('ProjectDashboardTracker', () => {
     })
   })
 
+  it('tracks recent files from raw Codex apply_patch arguments', () => {
+    const tracker = new ProjectDashboardTracker()
+
+    tracker.applyAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'edit-raw-1',
+      name: 'apply_patch',
+      input: { arguments: '*** Begin Patch\n*** Update File: src/bridge/ProjectDashboardTracker.ts\n*** End Patch\n' },
+    })
+
+    expect(tracker.snapshot()).toMatchObject({
+      phase: 'editing',
+      recentFiles: ['src/bridge/ProjectDashboardTracker.ts'],
+    })
+  })
+
   it('tracks subagent roles and testing failure recovery state', () => {
     const tracker = new ProjectDashboardTracker()
     const started: AgentEvent = {
