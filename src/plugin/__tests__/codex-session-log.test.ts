@@ -121,6 +121,39 @@ describe('CodexSessionLogMapper', () => {
     ])
   })
 
+  it('accepts nested spawn_agent output shapes from tool runtimes', () => {
+    const mapper = new CodexSessionLogMapper()
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-nested',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","task":"实现日志映射"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-nested',
+        output: '{"agent":{"id":"agent-nested","name":"Ada"}}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.started',
+        agentId: 'agent-nested',
+        agentType: 'worker',
+        parentToolUseId: 'spawn-call-nested',
+        task: '实现日志映射',
+        model: 'gpt-5-codex',
+        displayName: 'Ada',
+      },
+    ])
+  })
+
   it('promotes completed wait_agent statuses to subagent.completed events', () => {
     const mapper = new CodexSessionLogMapper()
     mapper.mapRecord({
@@ -358,6 +391,184 @@ describe('CodexSessionLogMapper', () => {
         toolCalls: 0,
       },
     ])
+  })
+
+  it('promotes wait_agent array results into subagent progress and completion', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-array',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"reviewer","message":"检查实现"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-array',
+        output: '{"agent_id":"agent-reviewer","nickname":"Reviewer"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-array',
+        name: 'wait_agent',
+        arguments: '{}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-array',
+        output: JSON.stringify({
+          results: [
+            {
+              agent_id: 'agent-reviewer',
+              summary: '发现一个边界情况',
+              completed: '审查完成',
+            },
+          ],
+        }),
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-reviewer',
+        event: { type: 'text', content: '发现一个边界情况' },
+      },
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-reviewer',
+        result: '审查完成',
+        status: 'completed',
+        toolCalls: 0,
+      },
+    ])
+  })
+
+  it('uses the known single running subagent when wait_agent output omits agent id', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-single',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"实现功能"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-single',
+        output: '{"agent_id":"agent-worker","nickname":"Worker"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-single',
+        name: 'wait_agent',
+        arguments: '{}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-single',
+        output: '{"summary":"正在写测试","completed":"功能完成"}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-worker',
+        event: { type: 'text', content: '正在写测试' },
+      },
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-worker',
+        result: '功能完成',
+        status: 'completed',
+        toolCalls: 0,
+      },
+    ])
+  })
+
+  it('maps asynchronous subagent notifications to completion once', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-notify',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"verifier","message":"跑验证"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-notify',
+        output: '{"agent_id":"agent-notify","nickname":"Verifier"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: '<subagent_notification>\n{"agent_path":"agent-notify","status":{"summary":"测试通过","completed":"验证完成"}}\n</subagent_notification>',
+          },
+        ],
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-notify',
+        event: { type: 'text', content: '测试通过' },
+      },
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-notify',
+        result: '验证完成',
+        status: 'completed',
+        toolCalls: 0,
+      },
+    ])
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-after-notify',
+        name: 'wait_agent',
+        arguments: '{"targets":["agent-notify"]}',
+      },
+    })
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-after-notify',
+        output: '{"status":{"agent-notify":{"completed":"重复完成"}}}',
+      },
+    })).toEqual([])
   })
 
   it('maps task_complete to a session.ended event with duration and last message', () => {

@@ -59,6 +59,18 @@ function extractAssistantText(payload: Record<string, unknown>): string {
   return parts.join("");
 }
 
+function extractMessageText(payload: Record<string, unknown>): string {
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const parts: string[] = [];
+  for (const block of content) {
+    const record = asRecord(block);
+    if (!record) continue;
+    const text = asText(record.text ?? record.content);
+    if (text) parts.push(text);
+  }
+  return parts.join("");
+}
+
 function extractReasoningText(payload: Record<string, unknown>): string {
   if (typeof payload.text === "string") return payload.text;
   if (typeof payload.delta === "string") return payload.delta;
@@ -116,6 +128,36 @@ function listAgentIds(input: Record<string, unknown>, knownAgentIds: Iterable<st
   return deduped.length > 0 ? deduped : [...knownAgentIds];
 }
 
+function extractAgentId(record: Record<string, unknown>, fallback?: string): string {
+  return asText(
+    record.agent_id
+    ?? record.agentId
+    ?? record.id
+    ?? record.target
+    ?? record.name,
+  ) || fallback || "";
+}
+
+function extractNestedAgentId(record: Record<string, unknown>): string {
+  const agent = asRecord(record.agent);
+  const status = asRecord(record.status);
+  return extractAgentId(record)
+    || (agent ? extractAgentId(agent) : "")
+    || asText(record.agent_path)
+    || asText(record.agentPath)
+    || asText(status?.agent_id ?? status?.agentId);
+}
+
+function parseSubagentNotification(text: string): Record<string, unknown> | null {
+  const match = text.match(/<subagent_notification>\s*([\s\S]*?)\s*<\/subagent_notification>/);
+  if (!match) return null;
+  try {
+    return asRecord(JSON.parse(match[1])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function truncateForTown(text: string, maxChars = DEFAULT_MAX_OUTPUT_CHARS): string {
   if (text.length <= maxChars) return text;
   if (maxChars <= 3) return ".".repeat(Math.max(0, maxChars));
@@ -156,6 +198,7 @@ export class CodexSessionLogMapper {
   private mapResponseItem(payload: Record<string, unknown>): CodexAdapterEvent[] {
     switch (payload.type) {
       case "message": {
+        if (payload.role === "user") return this.mapSubagentNotification(extractMessageText(payload));
         if (payload.role !== "assistant") return [];
         const content = extractAssistantText(payload);
         return content ? [{ type: "assistant.message", content, final: true }] : [];
@@ -212,11 +255,12 @@ export class CodexSessionLogMapper {
     rawOutput: string,
   ): CodexAdapterEvent[] {
     const output = parseInput(rawOutput);
-    const agentId = asText(output.agent_id ?? output.agentId);
+    const agentId = extractNestedAgentId(output);
     if (!agentId) return [];
     const agentType = asText(input.agent_type ?? input.agentType) || "worker";
     const task = asText(input.message ?? input.task) || "Codex sub-agent task";
-    const displayName = asText(output.nickname ?? output.displayName) || undefined;
+    const agent = asRecord(output.agent);
+    const displayName = asText(output.nickname ?? output.displayName ?? output.name ?? agent?.nickname ?? agent?.displayName ?? agent?.name) || undefined;
     this.subagents.set(agentId, {
       agentType,
       task,
@@ -255,12 +299,13 @@ export class CodexSessionLogMapper {
 
   private mapWaitAgentOutput(rawOutput: string): CodexAdapterEvent[] {
     const output = parseInput(rawOutput);
-    const status = asRecord(output.status);
-    if (!status) return [];
+    const statusEntries = this.listWaitAgentStatusEntries(output);
+    if (statusEntries.length === 0) return [];
     const events: CodexAdapterEvent[] = [];
-    for (const [agentId, value] of Object.entries(status)) {
+    for (const [agentId, value] of statusEntries) {
       const record = asRecord(value);
-      if (!record) continue;
+      if (!record || !agentId) continue;
+      if (!this.subagents.has(agentId)) continue;
       const completed = asText(record.completed);
       const failed = asText(record.failed ?? record.error);
       events.push(...this.mapSubagentStatusProgress(agentId, record));
@@ -275,6 +320,54 @@ export class CodexSessionLogMapper {
       this.subagents.delete(agentId);
     }
     return events;
+  }
+
+  private mapSubagentNotification(text: string): CodexAdapterEvent[] {
+    const notification = parseSubagentNotification(text);
+    if (!notification) return [];
+    const agentId = extractNestedAgentId(notification);
+    const status = asRecord(notification.status) ?? notification;
+    if (!agentId || !this.subagents.has(agentId)) return [];
+    const completed = asText(status.completed);
+    const failed = asText(status.failed ?? status.error);
+    if (!completed && !failed) return this.mapSubagentStatusProgress(agentId, status);
+    const events = [
+      ...this.mapSubagentStatusProgress(agentId, status),
+      {
+        type: "subagent.completed" as const,
+        agentId,
+        result: completed || failed,
+        status: failed ? "failed" as const : "completed" as const,
+        toolCalls: this.countStatusToolCalls(status),
+      },
+    ];
+    this.subagents.delete(agentId);
+    return events;
+  }
+
+  private listWaitAgentStatusEntries(output: Record<string, unknown>): Array<[string, unknown]> {
+    const status = asRecord(output.status);
+    if (status) return Object.entries(status);
+
+    const list = output.results ?? output.result ?? output.agents ?? output.statuses;
+    if (Array.isArray(list)) {
+      return list
+        .map((item, index): [string, unknown] | null => {
+          const record = asRecord(item);
+          if (!record) return null;
+          const agentId = extractAgentId(record, `agent-${index + 1}`);
+          return agentId ? [agentId, record] : null;
+        })
+        .filter((entry): entry is [string, unknown] => entry !== null);
+    }
+
+    const singleAgentId = extractAgentId(output);
+    if (singleAgentId) return [[singleAgentId, output]];
+
+    const knownIds = [...this.subagents.keys()];
+    if (knownIds.length === 1) return [[knownIds[0], output]];
+
+    return [];
   }
 
   private mapSubagentStatusProgress(agentId: string, record: StatusRecord): CodexAdapterEvent[] {
