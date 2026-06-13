@@ -627,9 +627,12 @@ export class DirectorBridge {
     const label = command ? `：${command.slice(0, 80)}` : ''
     const events: GameEvent[] = [
       { type: 'dialog_message', npcId: this.stewardName, text: `测试/构建失败，团队先集中定位${label}`, isStreaming: false },
+      { type: 'camera_move', target: { x: 24, y: 0, z: 19 }, follow: this.stewardName, durationMs: 700 },
     ]
-    for (const npcId of team) {
+    for (const [index, npcId] of team.entries()) {
+      const target = this.debugRallyTarget(index)
       events.push(
+        { type: 'npc_move_to', npcId, target, speed: 4 },
         { type: 'npc_phase', npcId, phase: 'error' },
         { type: 'npc_glow', npcId, color: 'red' },
         { type: 'npc_emoji', npcId, emoji: '🚨' },
@@ -639,6 +642,22 @@ export class DirectorBridge {
     }
     events.push({ type: 'npc_emote', npcId: this.stewardName, emote: 'frustrated' })
     this.emit(events)
+  }
+
+  private debugRallyTarget(index: number): { x: number; y: number; z: number } {
+    const offsets = [
+      { x: 0, z: 0 },
+      { x: 1.4, z: 0 },
+      { x: 0, z: 1.4 },
+      { x: -1.4, z: 0 },
+      { x: 0, z: -1.4 },
+      { x: 1.0, z: 1.0 },
+      { x: -1.0, z: 1.0 },
+      { x: 1.0, z: -1.0 },
+      { x: -1.0, z: -1.0 },
+    ]
+    const offset = offsets[index % offsets.length]
+    return { x: 24 + offset.x, y: 0, z: 19 + offset.z }
   }
 
   processCitizenEvent(npcId: string, event: AgentEvent): void {

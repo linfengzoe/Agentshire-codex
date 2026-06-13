@@ -52,6 +52,10 @@ describe('DirectorBridge debug recovery story', () => {
     })
     expect(emitted).toContainEqual({ type: 'npc_look_at', npcId: 'reviewer', targetNpcId: 'steward' })
     expect(emitted).toContainEqual({ type: 'npc_look_at', npcId: 'verifier', targetNpcId: 'steward' })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'steward', target: { x: 24, y: 0, z: 19 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'reviewer', target: { x: 25.4, y: 0, z: 19 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'verifier', target: { x: 24, y: 0, z: 20.4 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'camera_move', target: { x: 24, y: 0, z: 19 }, follow: 'steward', durationMs: 700 })
     expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'reviewer', color: 'red' })
     expect(emitted).toContainEqual({ type: 'npc_phase', npcId: 'verifier', phase: 'error' })
 
