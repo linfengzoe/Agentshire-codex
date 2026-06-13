@@ -49,6 +49,7 @@ function createMockHandlers(): EventHandlers {
     onWorkflowIntent: vi.fn(),
     onSetTime: vi.fn(),
     onSetWeather: vi.fn(),
+    onProjectDashboardUpdate: vi.fn(),
   }
 }
 
@@ -192,5 +193,24 @@ describe('EventDispatcher', () => {
 
     expect(handlers.onProgress).toHaveBeenCalledOnce()
     expect(handlers.onProgress).toHaveBeenCalledWith(3, 10, 'Loading...')
+  })
+
+  it('project_dashboard_update routes dashboard state to handler', () => {
+    const event: GameEvent = {
+      type: 'project_dashboard_update',
+      state: {
+        phase: 'writing_tests',
+        currentTask: 'Run focused checks',
+        completedSteps: ['读项目', '写测试'],
+        runningTools: [{ id: 'test-1', name: 'shell_command', label: '运行测试' }],
+        testStatus: 'running',
+        subagents: [{ agentId: 'agent_verifier', displayName: 'Verifier', role: 'Verifier', status: 'running' }],
+        recentFiles: ['src/bridge/ProjectDashboardTracker.ts'],
+      },
+    }
+    dispatcher.dispatch(event)
+
+    expect(handlers.onProjectDashboardUpdate).toHaveBeenCalledOnce()
+    expect(handlers.onProjectDashboardUpdate).toHaveBeenCalledWith(event.state)
   })
 })

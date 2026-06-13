@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import idleImageUrl from '../../assets/office-whiteboard-idle.webp'
+import type { CodexProjectDashboardState } from '../../data/GameProtocol'
 
 export interface WhiteboardPlanData {
   name: string
@@ -11,7 +12,7 @@ export interface WhiteboardPlanData {
   }>
 }
 
-type RenderMode = 'idle' | 'single' | 'multi' | 'celebrating'
+type RenderMode = 'idle' | 'single' | 'multi' | 'project' | 'celebrating'
 
 const W = 1024
 const H = 640
@@ -39,6 +40,7 @@ export class WhiteboardRenderer {
   private mode: RenderMode = 'idle'
   private plans: WhiteboardPlanData[] = []
   private lastPlans: WhiteboardPlanData[] = []
+  private projectDashboard: CodexProjectDashboardState | null = null
   private celebrationTime = 0
   private elapsed = 0
 
@@ -87,6 +89,21 @@ export class WhiteboardRenderer {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
   }
 
+  setProjectDashboard(state: CodexProjectDashboardState): void {
+    this.projectDashboard = {
+      ...state,
+      completedSteps: [...state.completedSteps],
+      runningTools: [...state.runningTools],
+      subagents: [...state.subagents],
+      recentFiles: [...state.recentFiles],
+    }
+    this.mode = 'project'
+    this.renderProjectDashboard(this.projectDashboard)
+    this.texture.needsUpdate = true
+    const total = Math.max(state.completedSteps.length + state.runningTools.length, state.subagents.length, 1)
+    this.onStepProgress?.(state.completedSteps.length, total)
+  }
+
   update(dt: number): void {
     this.elapsed += dt
 
@@ -106,6 +123,8 @@ export class WhiteboardRenderer {
       this.renderSinglePlan(this.plans[0])
     } else if (this.mode === 'multi') {
       this.renderMultiPlan(this.plans)
+    } else if (this.mode === 'project' && this.projectDashboard) {
+      this.renderProjectDashboard(this.projectDashboard)
     }
     this.texture.needsUpdate = true
   }
@@ -117,6 +136,7 @@ export class WhiteboardRenderer {
 
   private async fetchPlans(): Promise<void> {
     if (this.polling || this.mode === 'celebrating') return
+    if (this.projectDashboard && this.mode === 'project') return
     this.polling = true
     try {
       const res = await fetch(`${this.baseUrl}/board/plans`)
@@ -409,6 +429,120 @@ export class WhiteboardRenderer {
     }
   }
 
+  // ── Render: Codex Project Dashboard ──
+
+  private renderProjectDashboard(state: CodexProjectDashboardState): void {
+    const ctx = this.ctx
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, W, H)
+
+    const pad = 34
+    ctx.fillStyle = '#0f172a'
+    ctx.font = `700 32px ${FONT_FAM}`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText('Codex Work Board', pad, 58)
+
+    const phaseLabel: Record<CodexProjectDashboardState['phase'], string> = {
+      reading: '读项目',
+      writing_tests: '写测试',
+      editing: '改代码',
+      verifying: '跑验证',
+      debugging: '修 bug',
+      summarizing: '完成总结',
+    }
+
+    const pulse = 0.55 + Math.abs(Math.sin(this.elapsed * 4)) * 0.45
+    ctx.fillStyle = state.phase === 'debugging' ? '#ef4444' : `rgba(37, 99, 235, ${pulse})`
+    ctx.beginPath()
+    ctx.arc(pad + 10, 100, 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#1e293b'
+    ctx.font = `600 22px ${FONT_FAM}`
+    ctx.fillText(`${phaseLabel[state.phase]}  ${state.currentTask || '等待 Codex 事件'}`, pad + 30, 108)
+
+    const completed = state.completedSteps.slice(-5)
+    const running = state.runningTools.slice(0, 4)
+    const subagents = state.subagents.slice(0, 4)
+    const files = state.recentFiles.slice(0, 4)
+
+    let y = 158
+    ctx.font = `700 18px ${FONT_FAM}`
+    ctx.fillStyle = '#475569'
+    ctx.fillText('进度', pad, y)
+    y += 34
+    if (completed.length === 0 && running.length === 0) {
+      ctx.font = `500 20px ${FONT_FAM}`
+      ctx.fillStyle = '#94a3b8'
+      ctx.fillText('等待工具调用...', pad, y)
+      y += 34
+    } else {
+      for (const step of completed) {
+        ctx.font = `600 20px ${FONT_FAM}`
+        ctx.fillStyle = '#10b981'
+        ctx.fillText('✓', pad, y)
+        ctx.fillStyle = '#334155'
+        ctx.fillText(this.ellipsis(ctx, step, 380), pad + 30, y)
+        y += 30
+      }
+      for (const tool of running) {
+        ctx.font = `600 20px ${FONT_FAM}`
+        ctx.fillStyle = '#2563eb'
+        ctx.fillText('▶', pad, y)
+        ctx.fillStyle = '#0f172a'
+        ctx.fillText(this.ellipsis(ctx, tool.label, 380), pad + 30, y)
+        y += 30
+      }
+    }
+
+    const rightX = 560
+    let ry = 158
+    ctx.font = `700 18px ${FONT_FAM}`
+    ctx.fillStyle = '#475569'
+    ctx.fillText('子代理', rightX, ry)
+    ry += 34
+    if (subagents.length === 0) {
+      ctx.font = `500 20px ${FONT_FAM}`
+      ctx.fillStyle = '#94a3b8'
+      ctx.fillText('当前没有子代理', rightX, ry)
+      ry += 34
+    } else {
+      for (const agent of subagents) {
+        const color = agent.status === 'completed' ? '#10b981' : agent.status === 'failed' ? '#ef4444' : '#2563eb'
+        ctx.fillStyle = color
+        ctx.font = `700 16px ${FONT_FAM}`
+        ctx.fillText(agent.role, rightX, ry)
+        ctx.fillStyle = '#0f172a'
+        ctx.font = `600 19px ${FONT_FAM}`
+        ctx.fillText(this.ellipsis(ctx, agent.displayName, 250), rightX + 92, ry)
+        ry += 30
+      }
+    }
+
+    y = Math.max(y, 380)
+    ctx.font = `700 18px ${FONT_FAM}`
+    ctx.fillStyle = '#475569'
+    ctx.fillText('最近文件', pad, y)
+    y += 32
+    ctx.font = `500 18px ${FONT_FAM}`
+    ctx.fillStyle = '#334155'
+    for (const file of files) {
+      ctx.fillText(this.ellipsis(ctx, file, W - pad * 2), pad, y)
+      y += 26
+    }
+
+    const statusColor = state.testStatus === 'passed' ? '#10b981' : state.testStatus === 'failed' ? '#ef4444' : state.testStatus === 'running' ? '#2563eb' : '#94a3b8'
+    ctx.fillStyle = statusColor
+    ctx.font = `700 18px ${FONT_FAM}`
+    ctx.fillText(`测试：${state.testStatus}`, rightX, 404)
+
+    if (state.lastError) {
+      ctx.fillStyle = '#ef4444'
+      ctx.font = `600 17px ${FONT_FAM}`
+      ctx.fillText(this.ellipsis(ctx, state.lastError, W - rightX - pad), rightX, 444)
+    }
+  }
+
   // ── Firework particle system ──
 
   private spawnFirework(): void {
@@ -596,5 +730,18 @@ export class WhiteboardRenderer {
       if (this.stepStatus(step) === 'pending') return step
     }
     return null
+  }
+
+  private ellipsis(
+    ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number,
+  ): string {
+    if (ctx.measureText(text).width <= maxWidth) return text
+    let next = text
+    while (next.length > 0 && ctx.measureText(`${next}...`).width > maxWidth) {
+      next = next.slice(0, -1)
+    }
+    return `${next}...`
   }
 }

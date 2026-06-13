@@ -159,6 +159,155 @@ export class WorkEffects {
     })
   }
 
+  terminalScreen(target: THREE.Object3D, label: string): void {
+    this.floatingPanel(target, 192, 112, 1.25, 0.72, (ctx) => {
+      ctx.fillStyle = '#07110b'
+      ctx.fillRect(0, 0, 192, 112)
+      ctx.fillStyle = '#123822'
+      ctx.fillRect(0, 0, 192, 18)
+      ctx.fillStyle = '#34d399'
+      ctx.font = 'bold 11px monospace'
+      ctx.fillText('terminal', 10, 13)
+      ctx.font = '13px monospace'
+      const text = label || 'shell_command'
+      const lines = [`> ${text.slice(0, 24)}`, text.slice(24, 48), 'running...']
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], 12, 42 + i * 20)
+      }
+    })
+  }
+
+  browserProjection(target: THREE.Object3D, label: string): void {
+    this.floatingPanel(target, 180, 112, 1.2, 0.74, (ctx) => {
+      ctx.fillStyle = '#e0f2fe'
+      ctx.fillRect(0, 0, 180, 112)
+      ctx.fillStyle = '#0f172a'
+      ctx.fillRect(0, 0, 180, 18)
+      ctx.fillStyle = '#38bdf8'
+      ctx.fillRect(12, 30, 156, 10)
+      ctx.fillStyle = '#7dd3fc'
+      ctx.fillRect(12, 50, 98, 10)
+      ctx.fillStyle = '#bae6fd'
+      ctx.fillRect(12, 70, 132, 10)
+      ctx.fillStyle = '#0369a1'
+      ctx.font = 'bold 12px sans-serif'
+      ctx.fillText((label || 'browser').slice(0, 22), 12, 101)
+    })
+  }
+
+  constructionBurst(target: THREE.Object3D): void {
+    const pos = new THREE.Vector3()
+    target.getWorldPosition(pos)
+    pos.y += 1.3
+    this.pool.emitParticles(18, pos, {
+      velocity: () => new THREE.Vector3((Math.random() - 0.5) * 2.2, 0.5 + Math.random() * 1.5, (Math.random() - 0.5) * 2.2),
+      color: () => new THREE.Color().setHSL(0.08 + Math.random() * 0.06, 0.9, 0.6),
+      size: () => 0.06 + Math.random() * 0.05,
+      life: () => 0.45 + Math.random() * 0.45,
+      emissive: 2,
+    })
+    this.floatingPanel(target, 96, 64, 0.72, 0.48, (ctx) => {
+      ctx.fillStyle = '#451a03'
+      ctx.fillRect(0, 0, 96, 64)
+      ctx.fillStyle = '#f59e0b'
+      ctx.fillRect(12, 16, 72, 10)
+      ctx.fillRect(28, 28, 40, 10)
+      ctx.fillStyle = '#fed7aa'
+      ctx.font = 'bold 12px sans-serif'
+      ctx.fillText('PATCH', 26, 52)
+    }, 1.6)
+  }
+
+  statusLight(target: THREE.Object3D, status: string, label: string): void {
+    const color = status === 'failed' ? 0xef4444 : status === 'passed' ? 0x22c55e : 0x38bdf8
+    const scene = this.registry.getScene()
+    const geo = new THREE.SphereGeometry(0.16, 16, 12)
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 })
+    const mesh = new THREE.Mesh(geo, mat)
+    scene.add(mesh)
+
+    const light = new THREE.PointLight(color, 1.4, 3)
+    scene.add(light)
+
+    let life = 0
+    this.registry.addMeshEffect({
+      mesh,
+      update: (dt) => {
+        life += dt
+        target.getWorldPosition(TEMP_VEC)
+        const bounce = Math.sin(life * 5) * 0.08
+        mesh.position.set(TEMP_VEC.x, TEMP_VEC.y + 2.25 + bounce, TEMP_VEC.z)
+        light.position.copy(mesh.position)
+        const scale = 1 + Math.sin(life * 8) * 0.18
+        mesh.scale.setScalar(scale)
+        if (life > 2.4) {
+          mat.opacity = Math.max(0, 1 - (life - 2.4) * 2)
+          light.intensity = mat.opacity * 1.4
+        }
+        if (life > 2.9) {
+          scene.remove(mesh)
+          scene.remove(light)
+          geo.dispose(); mat.dispose()
+          return false
+        }
+        return true
+      },
+    })
+
+    if (label) {
+      this.floatingPanel(target, 112, 40, 0.78, 0.28, (ctx) => {
+        ctx.fillStyle = status === 'failed' ? '#7f1d1d' : status === 'passed' ? '#14532d' : '#075985'
+        ctx.fillRect(0, 0, 112, 40)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 13px sans-serif'
+        ctx.fillText(`${label}: ${status}`, 10, 25)
+      }, 1.8, 2.55)
+    }
+  }
+
+  private floatingPanel(
+    target: THREE.Object3D,
+    width: number,
+    height: number,
+    scaleX: number,
+    scaleY: number,
+    draw: (ctx: CanvasRenderingContext2D) => void,
+    duration = 2.2,
+    yOffset = 1.75,
+  ): void {
+    const scene = this.registry.getScene()
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')!
+    draw(ctx)
+
+    const tex = new THREE.CanvasTexture(canvas)
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0 })
+    const sprite = new THREE.Sprite(mat)
+    sprite.scale.set(scaleX, scaleY, 1)
+    scene.add(sprite)
+
+    let life = 0
+    this.registry.addMeshEffect({
+      mesh: sprite,
+      update: (dt) => {
+        life += dt
+        target.getWorldPosition(TEMP_VEC)
+        sprite.position.set(TEMP_VEC.x, TEMP_VEC.y + yOffset + life * 0.12, TEMP_VEC.z)
+        if (life < 0.2) mat.opacity = life / 0.2
+        else if (life > duration - 0.45) mat.opacity = Math.max(0, (duration - life) / 0.45)
+        else mat.opacity = 0.92
+        if (life > duration) {
+          scene.remove(sprite)
+          tex.dispose(); mat.dispose()
+          return false
+        }
+        return true
+      },
+    })
+  }
+
   searchRadar(target: THREE.Object3D): void {
     const pos = new THREE.Vector3()
     target.getWorldPosition(pos)

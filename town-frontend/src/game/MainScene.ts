@@ -31,7 +31,7 @@ import { ModeIndicator } from '../ui/ModeIndicator'
 import { ModeManager } from './workflow/ModeManager'
 import { WAYPOINTS, type SceneType, type NPCConfig, type WorkSubState } from '../types'
 import type { IWorldDataSource } from '../data/IWorldDataSource'
-import type { GameEvent, GameNPCRole } from '../data/GameProtocol'
+import type { CodexProjectDashboardState, GameEvent, GameNPCRole } from '../data/GameProtocol'
 import { t } from '../i18n'
 import type { TownConfigStore } from '../data/TownConfigStore'
 import { EventDispatcher } from './EventDispatcher'
@@ -629,7 +629,17 @@ export class MainScene implements GameScene {
         }
       },
       onWorkflowIntent: (event) => this.choreographer.handleIntent(event),
+      onProjectDashboardUpdate: (state) => this.onProjectDashboardUpdate(state),
     })
+  }
+
+  private onProjectDashboardUpdate(state: CodexProjectDashboardState): void {
+    this.whiteboardHasPlan = state.runningTools.length > 0 || state.subagents.length > 0 || state.completedSteps.length > 0
+    this.officeBuilder.whiteboard.setProjectDashboard(state)
+    if (this.modeIndicator) {
+      const total = Math.max(state.completedSteps.length + state.runningTools.length, state.completedSteps.length, 1)
+      this.modeIndicator.setProgress(Math.min(state.completedSteps.length, total), total)
+    }
   }
 
   private readBubbleDebugFlag(): boolean {
@@ -1352,6 +1362,26 @@ __workflow 演出测试指令:
       case 'fileIcon': {
         const npc = getNpc(params.npcId)
         if (npc) this.vfx.fileIcon(npc.mesh, (params.fileName as string) ?? 'file.ts')
+        break
+      }
+      case 'terminalScreen': {
+        const npc = getNpc(params.npcId)
+        if (npc) this.vfx.terminalScreen(npc.mesh, String(params.label ?? 'shell'))
+        break
+      }
+      case 'browserProjection': {
+        const npc = getNpc(params.npcId)
+        if (npc) this.vfx.browserProjection(npc.mesh, String(params.label ?? 'browser'))
+        break
+      }
+      case 'constructionBurst': {
+        const npc = getNpc(params.npcId)
+        if (npc) this.vfx.constructionBurst(npc.mesh)
+        break
+      }
+      case 'statusLight': {
+        const npc = getNpc(params.npcId)
+        if (npc) this.vfx.statusLight(npc.mesh, String(params.status ?? 'running'), String(params.label ?? ''))
         break
       }
       case 'workingStream': {

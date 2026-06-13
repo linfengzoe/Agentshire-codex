@@ -79,6 +79,22 @@ export class VFXSystem {
     this.work.fileIcon(target, fileName)
   }
 
+  terminalScreen(target: THREE.Object3D, label: string): void {
+    this.work.terminalScreen(target, label)
+  }
+
+  browserProjection(target: THREE.Object3D, label: string): void {
+    this.work.browserProjection(target, label)
+  }
+
+  constructionBurst(target: THREE.Object3D): void {
+    this.work.constructionBurst(target)
+  }
+
+  statusLight(target: THREE.Object3D, status: string, label: string): void {
+    this.work.statusLight(target, status, label)
+  }
+
   searchRadar(target: THREE.Object3D): void {
     this.work.searchRadar(target)
   }

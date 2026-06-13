@@ -1,5 +1,5 @@
 // @desc Central GameEvent dispatcher — routes events to handler callbacks with zero business logic
-import type { GameEvent, ScreenState } from '../data/GameProtocol'
+import type { CodexProjectDashboardState, GameEvent, ScreenState } from '../data/GameProtocol'
 import type { TownConfig } from '../data/TownConfig'
 
 export interface EventHandlers {
@@ -47,6 +47,7 @@ export interface EventHandlers {
   onSetTime(event: GameEvent & { type: 'set_time' }): void
   onSetWeather(event: GameEvent & { type: 'set_weather' }): void
   onWorkflowIntent(event: GameEvent): void
+  onProjectDashboardUpdate(state: CodexProjectDashboardState): void
 }
 
 export class EventDispatcher {
@@ -211,6 +212,9 @@ export class EventDispatcher {
       case 'workflow_publish':
       case 'workflow_return':
         this.handlers.onWorkflowIntent(event)
+        break
+      case 'project_dashboard_update':
+        this.handlers.onProjectDashboardUpdate(event.state)
         break
       default:
         break

@@ -34,6 +34,44 @@ export type ScreenState =
   | { mode: 'done' }
   | { mode: 'error' }
 
+// ── Codex project dashboard ──
+
+export type CodexProjectPhase =
+  | 'reading'
+  | 'writing_tests'
+  | 'editing'
+  | 'verifying'
+  | 'debugging'
+  | 'summarizing'
+
+export type CodexProjectTestStatus = 'idle' | 'running' | 'passed' | 'failed'
+
+export interface CodexProjectToolStatus {
+  id: string
+  name: string
+  label: string
+  npcId?: string
+}
+
+export interface CodexProjectSubagent {
+  agentId: string
+  npcId?: string
+  displayName: string
+  role: 'Explorer' | 'Worker' | 'Verifier' | 'Reviewer'
+  status: 'running' | 'completed' | 'failed'
+}
+
+export interface CodexProjectDashboardState {
+  phase: CodexProjectPhase
+  currentTask: string
+  completedSteps: string[]
+  runningTools: CodexProjectToolStatus[]
+  testStatus: CodexProjectTestStatus
+  subagents: CodexProjectSubagent[]
+  recentFiles: string[]
+  lastError?: string
+}
+
 // ── World init config ──
 
 export interface WorldInitConfig {
@@ -179,6 +217,9 @@ export type GameEvent =
 
   // Session management
   | { type: 'set_session_id'; sessionId: string }
+
+  // Codex project dashboard
+  | { type: 'project_dashboard_update'; state: CodexProjectDashboardState }
 
   // NPC model change (as GameEvent, mirrored from GameAction)
   | { type: 'npc_change_model'; npcId: string; characterKey: string; modelUrl?: string; modelTransform?: { scale: number; rotationX: number; rotationY: number; rotationZ: number; offsetX: number; offsetY: number; offsetZ: number }; animMapping?: Partial<Record<string, string>>; animFileUrls?: string[] }

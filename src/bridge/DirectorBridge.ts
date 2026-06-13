@@ -7,9 +7,10 @@ import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
 import { NpcEventQueue } from './NpcEventQueue.js'
 import { RouteManager, CITIZEN_SPAWN_ORIGIN, PLAZA_CENTER, STEWARD_FACE_POS } from './RouteManager.js'
-import { toolToVfxEvents, toolEmoji, extractFilePath, inferDeliverableCardType, CARD_TYPES } from './ToolVfxMapper.js'
+import { toolToVfxEvents, toolEmoji, extractFilePath, inferDeliverableCardType, CARD_TYPES, isDebugRelevantTool, toolResultToVfxEvents } from './ToolVfxMapper.js'
 import { ActivityStream } from './ActivityStream.js'
 import { CitizenManager } from './CitizenManager.js'
+import { ProjectDashboardTracker } from './ProjectDashboardTracker.js'
 
 type Phase = 'idle' | 'summoning' | 'assigning' | 'going_to_office' | 'working' | 'publishing' | 'returning'
 
@@ -45,6 +46,7 @@ const SUMMON_COLLECT_WINDOW = 3000
 export class DirectorBridge {
   private tracker = new StateTracker()
   private translator = new EventTranslator(this.tracker)
+  private projectDashboard = new ProjectDashboardTracker()
   private phase: Phase = 'idle'
   private agents = new Map<string, AgentInfo>()
   private agentOrder: string[] = []
@@ -379,6 +381,7 @@ export class DirectorBridge {
 
   /** Main entry point: dispatch an AgentEvent to the appropriate handler based on type */
   processAgentEvent(event: AgentEvent): void {
+    this.emit(this.projectDashboard.applyAgentEvent(event))
     if (event.type !== 'text_delta' && event.type !== 'thinking_delta' && event.type !== 'tool_input_delta') {
       console.log('[DirectorBridge] event:', event.type, 'phase:', this.phase, 'name' in event ? (event as { name?: string }).name ?? '' : '')
     }
@@ -438,7 +441,22 @@ export class DirectorBridge {
         return
       case 'tool_result':
         console.log('[DirectorBridge] tool_result:', event.name, 'phase:', this.phase)
-        this.activity.emitActivityStatus(this.stewardName, isToolSuccess(event.name ?? '', event.output ?? ''))
+        {
+          const success = isToolSuccess(event.name ?? '', event.output ?? '')
+          this.activity.emitActivityStatus(this.stewardName, success)
+          const debugRelevant = isDebugRelevantTool(event.name ?? '', this.lastToolInput)
+          const statusEvents = toolResultToVfxEvents(event.name ?? '', this.stewardName, this.lastToolInput, success)
+          if (statusEvents.length > 0) this.emit(statusEvents)
+          if (debugRelevant && !success) {
+            this.emit([
+              { type: 'npc_phase', npcId: this.stewardName, phase: 'error' },
+              { type: 'npc_emote', npcId: this.stewardName, emote: 'frustrated' },
+              { type: 'fx', effect: 'error_sparks', params: { npcId: this.stewardName } },
+            ])
+          } else if (debugRelevant && success) {
+            this.emit([{ type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' }])
+          }
+        }
         void this.citizens.detectPersonaSwitch(event)
         this.citizens.detectCitizenCreated(event)
         if (event.name === 'register_project') {
@@ -570,7 +588,12 @@ export class DirectorBridge {
         ])
         return
       case 'tool_result':
-        this.activity.emitActivityStatus(npcId, isToolSuccess(event.name ?? '', event.output ?? ''))
+        {
+          const success = isToolSuccess(event.name ?? '', event.output ?? '')
+          this.activity.emitActivityStatus(npcId, success)
+          const statusEvents = toolResultToVfxEvents(event.name ?? '', npcId, {}, success)
+          if (statusEvents.length > 0) this.emit(statusEvents)
+        }
         q.enqueuePhase([
           { type: 'npc_phase', npcId, phase: 'thinking' as NPCPhase },
         ])
@@ -779,7 +802,10 @@ export class DirectorBridge {
         case 'tool_result': {
           const isThinkingResult = inner.name === '__thinking__'
           if (!isThinkingResult) {
-            this.activity.emitActivityStatus(npcId, isToolSuccess(inner.name ?? '', inner.output ?? ''))
+            const success = isToolSuccess(inner.name ?? '', inner.output ?? '')
+            this.activity.emitActivityStatus(npcId, success)
+            const statusEvents = toolResultToVfxEvents(inner.name ?? '', npcId, {}, success)
+            if (statusEvents.length > 0) this.emit(statusEvents)
           }
           if (inWorkPhase) {
             q.enqueuePhase([{ type: 'npc_emoji', npcId, emoji: null }])
