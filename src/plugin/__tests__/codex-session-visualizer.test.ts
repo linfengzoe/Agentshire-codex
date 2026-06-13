@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -124,6 +124,102 @@ describe('startCodexSessionVisualizerWsServer', () => {
       {
         type: 'text',
         content: '完成。',
+      },
+    ])
+
+    ws.close()
+  })
+
+  it('forwards Codex spawn_agent and wait_agent records as real sub-agent lifecycle events', async () => {
+    const logPath = tempFile()
+    writeFileSync(logPath, '', 'utf8')
+    server = await startCodexSessionVisualizerWsServer({
+      port: 0,
+      sessionLogPath: logPath,
+      pollMs: 20,
+      startAtEnd: false,
+    })
+
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`)
+    await waitForOpen(ws)
+    const messagesPromise = waitForMessages(ws, 5)
+
+    ws.send(JSON.stringify({ type: 'town_session_init', townSessionId: 'town-subagents' }))
+    appendFileSync(logPath, [
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          call_id: 'spawn-1',
+          name: 'spawn_agent',
+          namespace: 'multi_agent_v1',
+          arguments: '{"agent_type":"explorer","message":"检查日志映射"}',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'spawn-1',
+          output: '{"agent_id":"019ebd1a-23a3-7423-98b2-e486b56a0030","nickname":"Heisenberg"}',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          call_id: 'wait-1',
+          name: 'wait_agent',
+          namespace: 'multi_agent_v1',
+          arguments: '{"targets":["019ebd1a-23a3-7423-98b2-e486b56a0030"],"timeout_ms":60000}',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'wait-1',
+          output: '{"status":{"019ebd1a-23a3-7423-98b2-e486b56a0030":{"completed":"检查完成"}},"timed_out":false}',
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8')
+
+    const messages = await messagesPromise
+    expect(messages[0].type).toBe('town_session_bound')
+    expect(messages[1].type).toBe('work_snapshot')
+    expect(messages.slice(2).map((msg) => msg.event)).toEqual([
+      {
+        type: 'sub_agent',
+        subtype: 'started',
+        agentId: '019ebd1a-23a3-7423-98b2-e486b56a0030',
+        agentType: 'explorer',
+        parentToolUseId: 'spawn-1',
+        task: '检查日志映射',
+        model: 'gpt-5-codex',
+        displayName: 'Heisenberg',
+      },
+      {
+        type: 'sub_agent',
+        subtype: 'progress',
+        agentId: '019ebd1a-23a3-7423-98b2-e486b56a0030',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'wait-1',
+          name: 'wait_agent',
+          input: {
+            targets: ['019ebd1a-23a3-7423-98b2-e486b56a0030'],
+            timeout_ms: 60000,
+          },
+        },
+      },
+      {
+        type: 'sub_agent',
+        subtype: 'done',
+        agentId: '019ebd1a-23a3-7423-98b2-e486b56a0030',
+        result: '检查完成',
+        status: 'completed',
+        toolCalls: 0,
       },
     ])
 
