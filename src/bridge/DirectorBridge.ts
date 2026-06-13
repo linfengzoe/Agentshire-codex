@@ -983,6 +983,9 @@ export class DirectorBridge {
         case 'tool_use': {
           this.activity.flushThinking(npcId)
             const isThinking = inner.name === '__thinking__' || inner.name === '__thinking_placeholder__'
+          if (inner.name === 'wait_agent') {
+            this.emitWaitAgentSyncStory()
+          }
           if (this.activity.isTodoWrite(inner.name)) {
             this.activity.emitTodoActivity(npcId, inner.input ?? {})
           } else {

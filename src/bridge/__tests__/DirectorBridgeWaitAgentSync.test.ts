@@ -52,4 +52,54 @@ describe('DirectorBridge wait_agent sync story', () => {
     expect(emitted).toContainEqual({ type: 'fx', effect: 'connectionBeam', params: { fromNpcId: 'steward', toNpcId: 'reviewer' } })
     expect(emitted).toContainEqual({ type: 'fx', effect: 'connectionBeam', params: { fromNpcId: 'steward', toNpcId: 'verifier' } })
   })
+
+  it('gathers the team when real Codex wait_agent is routed as subagent progress', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: 'review code',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_verifier',
+      agentType: 'verifier',
+      parentToolUseId: 'spawn-2',
+      task: 'run tests',
+      model: 'gpt-5',
+      displayName: 'Verifier',
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_reviewer',
+      event: {
+        type: 'tool_use',
+        toolUseId: 'wait-1',
+        name: 'wait_agent',
+        input: { targets: ['agent_reviewer', 'agent_verifier'] },
+      },
+    })
+
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'steward',
+      text: '正在同步子代理进度。',
+      isStreaming: false,
+    })
+    expect(emitted).toContainEqual({ type: 'npc_phase', npcId: 'reviewer', phase: 'waiting' })
+    expect(emitted).toContainEqual({ type: 'npc_phase', npcId: 'verifier', phase: 'waiting' })
+    expect(emitted).toContainEqual({ type: 'fx', effect: 'connectionBeam', params: { fromNpcId: 'steward', toNpcId: 'reviewer' } })
+    expect(emitted).toContainEqual({ type: 'fx', effect: 'connectionBeam', params: { fromNpcId: 'steward', toNpcId: 'verifier' } })
+  })
 })
