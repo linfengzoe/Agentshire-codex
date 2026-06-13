@@ -82,4 +82,99 @@ describe('DirectorBridge debug recovery story', () => {
     expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'reviewer', color: 'green' })
     expect(emitted).toContainEqual({ type: 'npc_phase', npcId: 'verifier', phase: 'working' })
   })
+
+  it('pulls the active team into debug mode when a subagent test tool fails', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: 'review code',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_verifier',
+      agentType: 'verifier',
+      parentToolUseId: 'spawn-2',
+      task: 'run tests',
+      model: 'gpt-5',
+      displayName: 'Verifier',
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_verifier',
+      event: {
+        type: 'tool_use',
+        toolUseId: 'sub-test-1',
+        name: 'shell_command',
+        input: { command: 'npm test' },
+      },
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_verifier',
+      event: {
+        type: 'tool_result',
+        toolUseId: 'sub-test-1',
+        name: 'shell_command',
+        output: 'FAIL src/bridge/DirectorBridge.test.ts',
+        meta: { exitCode: 1 },
+      },
+    })
+
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'steward',
+      text: '测试/构建失败，团队先集中定位：npm test',
+      isStreaming: false,
+    })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'steward', target: { x: 24, y: 0, z: 19 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'reviewer', target: { x: 25.4, y: 0, z: 19 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'npc_move_to', npcId: 'verifier', target: { x: 24, y: 0, z: 20.4 }, speed: 4 })
+    expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'reviewer', color: 'red' })
+    expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'verifier', color: 'red' })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_verifier',
+      event: {
+        type: 'tool_use',
+        toolUseId: 'sub-test-2',
+        name: 'shell_command',
+        input: { command: 'npm test' },
+      },
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_verifier',
+      event: {
+        type: 'tool_result',
+        toolUseId: 'sub-test-2',
+        name: 'shell_command',
+        output: 'PASS 21 files',
+        meta: { exitCode: 0 },
+      },
+    })
+
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'steward',
+      text: '验证恢复，团队切回绿色状态。',
+      isStreaming: false,
+    })
+    expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'reviewer', color: 'green' })
+    expect(emitted).toContainEqual({ type: 'npc_glow', npcId: 'verifier', color: 'green' })
+  })
 })

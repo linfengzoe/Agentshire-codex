@@ -1014,6 +1014,14 @@ export class DirectorBridge {
             const statusEvents = toolResultToVfxEvents(inner.name ?? '', npcId, resultInput, success)
             if (statusEvents.length > 0) this.emit(statusEvents)
             this.emitWorkstationScreenForResult(npcId, inner.name ?? '', resultInput, success)
+            const debugRelevant = isDebugRelevantTool(inner.name ?? '', resultInput)
+            if (debugRelevant && !success) {
+              this.lastToolInput = resultInput
+              this.emitDebugStory(false)
+            } else if (debugRelevant && success) {
+              this.lastToolInput = resultInput
+              this.emitDebugStory(true)
+            }
           }
           if (inWorkPhase) {
             q.enqueuePhase([{ type: 'npc_emoji', npcId, emoji: null }])
