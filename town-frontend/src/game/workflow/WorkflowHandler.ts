@@ -50,8 +50,14 @@ export interface WorkflowHandlerDeps {
   hasWhiteboardPlan: () => boolean
 }
 
+export function officeWorkTargetForStation(ws: { position: { x: number; z: number } }): { x: number; z: number } {
+  return {
+    x: ws.position.x,
+    z: ws.position.z,
+  }
+}
+
 export class WorkflowHandler {
-  private static readonly OFFICE_WORKER_Z_OFFSET = 0.7
   private static readonly ALL_STATION_IDS = ['B', 'C', 'F', 'G', 'D', 'E', 'H', 'A', 'I', 'J']
   private static readonly ROLE_STATION_PREFERENCES: Record<CodexSubagentRole, string[]> = {
     Explorer: ['A', 'B'],
@@ -120,9 +126,7 @@ export class WorkflowHandler {
       npc.restoreVisual()
       npc.setVisible(true)
 
-      const target = this.getOfficeWorkTarget(ws)
-      npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
-      npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+      this.seatNpcAtWorkstation(npc, ws)
 
       if (completed) {
         npc.transitionTo('idle')
@@ -208,8 +212,7 @@ export class WorkflowHandler {
       if (npc && wsId) {
         const ws = officeBuilder.getWorkstation(wsId)
         if (ws) {
-          npc.mesh.position.copy(ws.position)
-          npc.mesh.position.y = this.getStationY(npc)
+          this.seatNpcAtWorkstation(npc, ws)
         }
       }
     }
@@ -365,7 +368,7 @@ export class WorkflowHandler {
       await this.delay(300)
       npc.playAnim('walk')
       npc.moveTo(target, 4).then(() => {
-        npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+        this.seatNpcAtWorkstation(npc, ws)
         npc.playAnim('typing')
         officeBuilder.setScreenState(stationId, { mode: 'waiting' })
         seated.add(npc.id)
@@ -384,9 +387,7 @@ export class WorkflowHandler {
         if (!sid) continue
         const ws = officeBuilder.getWorkstation(sid)
         if (ws) {
-          const target = this.getOfficeWorkTarget(ws)
-          npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
-          npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+          this.seatNpcAtWorkstation(npc, ws)
           npc.playAnim('typing')
           officeBuilder.setScreenState(sid, { mode: 'waiting' })
           seated.add(npc.id)
@@ -515,6 +516,7 @@ export class WorkflowHandler {
     bubbles.show(npc.mesh, phrase, 1500)
     await this.delay(2000)
 
+    npc.restoreVisual()
     const door = { x: 15 + (Math.random() - 0.5) * 2, z: 24 }
     await npc.moveTo(door, 3)
     await npc.fadeOut()
@@ -542,15 +544,18 @@ export class WorkflowHandler {
     const allIds = ['steward', 'user', ...npcs.map(n => n.id)]
     npcManager.moveNpcsToScene(allIds, this.deps.townScene)
 
+    steward.restoreVisual()
     steward.mesh.position.set(officePos.x, 0, officePos.z)
 
     const userNpc = npcManager.get('user')
     if (userNpc) {
+      userNpc.restoreVisual()
       userNpc.mesh.position.set(officePos.x + 2, 0, officePos.z)
       userNpc.playAnim('idle')
     }
 
     for (const npc of npcs) {
+      npc.restoreVisual()
       npc.mesh.position.set(
         officePos.x + (Math.random() - 0.5) * 3,
         0,
@@ -698,10 +703,7 @@ export class WorkflowHandler {
       const npc = npcManager.get(a.npcId)
       const ws = officeBuilder.getWorkstation(stationId)
       if (!npc || !ws) continue
-      const target = this.getOfficeWorkTarget(ws)
-
-      npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
-      npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+      this.seatNpcAtWorkstation(npc, ws)
       npc.setVisible(true)
 
       if (a.status === 'completed') {
@@ -725,11 +727,16 @@ export class WorkflowHandler {
     }
   }
 
+  private seatNpcAtWorkstation(npc: NPC, ws: { position: { x: number; z: number } }): { x: number; z: number } {
+    const target = this.getOfficeWorkTarget(ws)
+    npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
+    npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+    npc.setWorkstationPose(true)
+    return target
+  }
+
   private getOfficeWorkTarget(ws: { position: { x: number; z: number } }): { x: number; z: number } {
-    return {
-      x: ws.position.x,
-      z: ws.position.z + WorkflowHandler.OFFICE_WORKER_Z_OFFSET,
-    }
+    return officeWorkTargetForStation(ws)
   }
 
   private getStationY(npc: NPC): number {
@@ -821,8 +828,7 @@ export class WorkflowHandler {
     const timeoutPromise = new Promise<'timeout'>(r => setTimeout(() => r('timeout'), MOVE_TIMEOUT))
     await Promise.race([movePromise, timeoutPromise])
 
-    npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
-    npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+    this.seatNpcAtWorkstation(npc, ws)
     npc.playAnim('typing')
     npc.setGlow('yellow')
     npc.setStatusEmoji('working')

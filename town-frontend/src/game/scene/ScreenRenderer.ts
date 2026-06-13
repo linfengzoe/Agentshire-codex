@@ -53,6 +53,8 @@ export class ScreenRenderer {
 
   getTexture(): THREE.CanvasTexture { return this.texture }
 
+  getCanvas(): HTMLCanvasElement | OffscreenCanvas { return this.canvas }
+
   setState(state: ScreenState): void {
     const sameMode = state.mode === this.state.mode
     if (sameMode && (state.mode !== 'coding'

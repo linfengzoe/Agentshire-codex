@@ -78,6 +78,9 @@ export class NPC {
   private glowPhase: number = 0
 
   private labelYOffset: number = 1.95
+  private baseLabelYOffset: number = 1.95
+  private baseModelRootY: number = 0
+  private workstationPoseActive = false
   private statusSpan: HTMLSpanElement | null = null
   private labelTextSpan: HTMLSpanElement | null = null
   public indicator: StatusIndicator
@@ -205,6 +208,8 @@ export class NPC {
       this.modelRoot.rotation.set(t.rotationX * deg, t.rotationY * deg, t.rotationZ * deg)
       this.modelRoot.position.set(t.offsetX, t.offsetY, t.offsetZ)
     }
+    this.baseModelRootY = this.modelRoot.position.y
+    this.baseLabelYOffset = this.labelYOffset
 
     if (clips.length > 0) {
       this.mixer = new THREE.AnimationMixer(model)
@@ -280,6 +285,9 @@ export class NPC {
   private buildFallbackModel(): void {
     this.usingGLTF = false
     this.labelYOffset = 1.95
+    this.baseLabelYOffset = this.labelYOffset
+    this.modelRoot.position.set(0, 0, 0)
+    this.baseModelRootY = this.modelRoot.position.y
 
     const bodyGeo = new THREE.CapsuleGeometry(0.3, 0.8, 8, 16)
     const bodyMat = new THREE.MeshStandardMaterial({
@@ -750,6 +758,19 @@ export class NPC {
   restoreVisual(): void {
     this.mesh.scale.setScalar(1)
     this.setModelOpacity(1)
+    this.setWorkstationPose(false)
+  }
+
+  setWorkstationPose(active: boolean): void {
+    if (this.workstationPoseActive === active) return
+    this.workstationPoseActive = active
+    if (active) {
+      this.modelRoot.position.y = this.baseModelRootY - 0.38
+      this.labelYOffset = Math.max(1.2, this.baseLabelYOffset - 0.32)
+      return
+    }
+    this.modelRoot.position.y = this.baseModelRootY
+    this.labelYOffset = this.baseLabelYOffset
   }
 
   updateLabel(camera: THREE.Camera, renderer: THREE.WebGLRenderer): void {

@@ -183,6 +183,12 @@ export class OfficeBuilder {
         screenMaterial,
       )
       monitorMesh.position.set(x, 1.8, z - 0.3)
+      monitorMesh.name = `workstation-screen-${ids[i]}`
+      monitorMesh.userData = {
+        ...monitorMesh.userData,
+        interactive: 'workstation_screen',
+        workstationId: ids[i],
+      }
       this.add(monitorMesh)
 
       this.box(0.84, 0.54, 0.04, 0x222222, x, 1.8, z - 0.32)
@@ -293,6 +299,17 @@ export class OfficeBuilder {
 
   getWorkstation(id: string): Workstation | undefined {
     return this.workstations.find(w => w.id === id)
+  }
+
+  getScreenHit(raycaster: THREE.Raycaster): Workstation | null {
+    const hits = raycaster.intersectObjects(this.workstations.map(w => w.monitorMesh), false)
+    const hit = hits[0]?.object
+    if (!hit) return null
+    return this.workstations.find(w => w.monitorMesh === hit) ?? null
+  }
+
+  getScreenCanvas(id: string): HTMLCanvasElement | OffscreenCanvas | null {
+    return this.getWorkstation(id)?.screenRenderer.getCanvas() ?? null
   }
 
   setScreenState(id: string, state: ScreenState | string): void {

@@ -49,6 +49,9 @@ export class UIManager {
 
   private whiteboardOverlay: HTMLElement | null = null
   private whiteboardMirrorCtx: CanvasRenderingContext2D | null = null
+  private workstationScreenOverlay: HTMLElement | null = null
+  private workstationScreenMirrorCtx: CanvasRenderingContext2D | null = null
+  private workstationScreenStationId: string | null = null
 
   init(): void {
     this.tabBtns = document.querySelectorAll('.tab-item')
@@ -216,6 +219,89 @@ export class UIManager {
       this.whiteboardMirrorCtx.clearRect(0, 0, 1024, 640)
       this.whiteboardMirrorCtx.drawImage(sourceCanvas, 0, 0, 1024, 640)
     }
+  }
+
+  showWorkstationScreen(stationId: string, sourceCanvas: HTMLCanvasElement | OffscreenCanvas): void {
+    this.workstationScreenStationId = stationId
+    if (!this.workstationScreenOverlay) {
+      const overlay = document.createElement('div')
+      Object.assign(overlay.style, {
+        position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+        backgroundColor: 'rgba(0, 0, 0, 0.62)', backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        zIndex: '210', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        opacity: '0', transition: 'opacity 0.2s ease', cursor: 'pointer',
+      })
+
+      const container = document.createElement('div')
+      Object.assign(container.style, {
+        position: 'relative', width: 'min(720px, 76vw)', aspectRatio: '256/160',
+        backgroundColor: '#0d1117', borderRadius: '8px', overflow: 'hidden',
+        boxShadow: '0 24px 56px rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)',
+        cursor: 'default',
+      })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = 256
+      canvas.height = 160
+      Object.assign(canvas.style, {
+        width: '100%', height: '100%', display: 'block',
+        imageRendering: 'pixelated',
+      })
+      this.workstationScreenMirrorCtx = canvas.getContext('2d')
+
+      const closeBtn = document.createElement('button')
+      closeBtn.setAttribute('aria-label', 'Close workstation screen')
+      const closeIcon = createLucideIcon('x', 16, '#e6edf3')
+      if (closeIcon) closeBtn.appendChild(closeIcon)
+      Object.assign(closeBtn.style, {
+        position: 'absolute', top: '12px', right: '12px',
+        width: '32px', height: '32px', borderRadius: '16px',
+        border: '1px solid rgba(255,255,255,0.18)', backgroundColor: 'rgba(13,17,23,0.72)',
+        padding: '0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      })
+      closeBtn.onclick = () => this.hideWorkstationScreen()
+      overlay.onclick = (e) => { if (e.target === overlay) this.hideWorkstationScreen() }
+
+      container.appendChild(canvas)
+      container.appendChild(closeBtn)
+      overlay.appendChild(container)
+      document.body.appendChild(overlay)
+      this.workstationScreenOverlay = overlay
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.workstationScreenOverlay?.style.display === 'flex') {
+          this.hideWorkstationScreen()
+        }
+      })
+    }
+
+    this.workstationScreenOverlay.style.display = 'flex'
+    this.updateWorkstationScreenMirror(sourceCanvas)
+    requestAnimationFrame(() => {
+      if (this.workstationScreenOverlay) this.workstationScreenOverlay.style.opacity = '1'
+    })
+  }
+
+  hideWorkstationScreen(): void {
+    if (this.workstationScreenOverlay) {
+      this.workstationScreenOverlay.style.opacity = '0'
+      setTimeout(() => {
+        if (this.workstationScreenOverlay) this.workstationScreenOverlay.style.display = 'none'
+      }, 200)
+    }
+    this.workstationScreenStationId = null
+  }
+
+  getOpenWorkstationScreenId(): string | null {
+    if (this.workstationScreenOverlay?.style.display !== 'flex') return null
+    return this.workstationScreenStationId
+  }
+
+  updateWorkstationScreenMirror(sourceCanvas: HTMLCanvasElement | OffscreenCanvas | null): void {
+    if (!sourceCanvas || this.workstationScreenOverlay?.style.display !== 'flex' || !this.workstationScreenMirrorCtx) return
+    this.workstationScreenMirrorCtx.clearRect(0, 0, 256, 160)
+    this.workstationScreenMirrorCtx.drawImage(sourceCanvas, 0, 0, 256, 160)
   }
 
   async fadeToBlack(ms = 300): Promise<void> {

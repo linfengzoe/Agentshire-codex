@@ -1474,14 +1474,22 @@ __workflow 演出测试指令:
       const interactionLock = this.isSceneInteractionLocked()
       if (interactionLock.locked) return
 
-      const tapRadius = this.sceneSwitcher.getSceneType() === 'office' ? 1.0 : 1.2
+      const curSceneType = this.sceneSwitcher.getSceneType()
+
+      if (curSceneType === 'office') {
+        const screenHit = this.officeBuilder.getScreenHit(raycaster)
+        if (screenHit) {
+          this.ui.showWorkstationScreen(screenHit.id, screenHit.screenRenderer.getCanvas())
+          return
+        }
+      }
+
+      const tapRadius = curSceneType === 'office' ? 1.0 : 1.2
       const npc = this.npcManager.findNearestNPC(worldPos, tapRadius)
       if (npc) {
         this.handleNPCTap(npc)
         return
       }
-
-      const curSceneType = this.sceneSwitcher.getSceneType()
 
       if (curSceneType === 'town') {
         for (const [buildingId, marker] of this.townBuilder.getDoorMarkers()) {
@@ -1749,6 +1757,10 @@ __workflow 演出测试指令:
     if (curScene === 'office') {
       this.officeBuilder?.updateScreens(deltaTime)
       this.ui.updateWhiteboardMirror(this.officeBuilder.whiteboard.getCanvas())
+      const openStationId = this.ui.getOpenWorkstationScreenId()
+      if (openStationId) {
+        this.ui.updateWorkstationScreenMirror(this.officeBuilder.getScreenCanvas(openStationId))
+      }
     }
     this._minigameUpdateCb?.(deltaTime)
   }
