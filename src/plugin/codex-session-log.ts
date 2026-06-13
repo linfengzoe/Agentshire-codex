@@ -23,6 +23,8 @@ type SubagentInfo = {
   parentToolUseId: string;
 };
 
+type StatusRecord = Record<string, unknown>;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -75,6 +77,43 @@ function extractReasoningText(payload: Record<string, unknown>): string {
 function parseExitCode(output: string): number | undefined {
   const match = output.match(/^Exit code:\s*(-?\d+)/m);
   return match ? Number(match[1]) : undefined;
+}
+
+function listTextValues(record: Record<string, unknown>, keys: string[]): string[] {
+  const values: string[] = [];
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) values.push(value.trim());
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" && item.trim()) values.push(item.trim());
+        const itemRecord = asRecord(item);
+        const text = asText(itemRecord?.text ?? itemRecord?.content ?? itemRecord?.summary);
+        if (text.trim()) values.push(text.trim());
+      }
+    }
+  }
+  return [...new Set(values)];
+}
+
+function listAgentIds(input: Record<string, unknown>, knownAgentIds: Iterable<string>): string[] {
+  const rawCandidates = [
+    input.targets,
+    input.agents,
+    input.agent_ids,
+    input.agentIds,
+    input.target_agent_ids,
+    input.targetAgentIds,
+  ];
+  const ids: string[] = [];
+  for (const candidate of rawCandidates) {
+    if (Array.isArray(candidate)) ids.push(...candidate.map(String));
+    else if (typeof candidate === "string" && candidate.trim()) ids.push(candidate.trim());
+  }
+  const single = asText(input.agent_id ?? input.agentId ?? input.target);
+  if (single) ids.push(single);
+  const deduped = [...new Set(ids.filter(Boolean))];
+  return deduped.length > 0 ? deduped : [...knownAgentIds];
 }
 
 export function truncateForTown(text: string, maxChars = DEFAULT_MAX_OUTPUT_CHARS): string {
@@ -199,7 +238,7 @@ export class CodexSessionLogMapper {
     toolCallId: string,
     input: Record<string, unknown>,
   ): CodexAdapterEvent[] {
-    const targets = Array.isArray(input.targets) ? input.targets.map(String) : [];
+    const targets = listAgentIds(input, this.subagents.keys());
     return targets
       .filter((agentId) => this.subagents.has(agentId))
       .map((agentId) => ({
@@ -224,17 +263,78 @@ export class CodexSessionLogMapper {
       if (!record) continue;
       const completed = asText(record.completed);
       const failed = asText(record.failed ?? record.error);
+      events.push(...this.mapSubagentStatusProgress(agentId, record));
       if (!completed && !failed) continue;
       events.push({
         type: "subagent.completed",
         agentId,
         result: completed || failed,
         status: failed ? "failed" : "completed",
-        toolCalls: typeof record.toolCalls === "number" ? record.toolCalls : 0,
+        toolCalls: this.countStatusToolCalls(record),
       });
       this.subagents.delete(agentId);
     }
     return events;
+  }
+
+  private mapSubagentStatusProgress(agentId: string, record: StatusRecord): CodexAdapterEvent[] {
+    const events: CodexAdapterEvent[] = [];
+    for (const text of listTextValues(record, ["summary", "message", "output", "result", "log"])) {
+      events.push({
+        type: "subagent.progress",
+        agentId,
+        event: { type: "text", content: truncateForTown(text, this.maxOutputChars) },
+      });
+    }
+    const toolCalls = this.listStatusToolCalls(record);
+    for (const [index, tool] of toolCalls.entries()) {
+      const toolRecord = asRecord(tool);
+      if (!toolRecord) continue;
+      const name = asText(toolRecord.name ?? toolRecord.tool ?? toolRecord.toolName) || "unknown";
+      const toolUseId = asText(toolRecord.id ?? toolRecord.call_id ?? toolRecord.toolUseId) || `${agentId}-tool-${index + 1}`;
+      const input = parseInput(toolRecord.input ?? toolRecord.arguments);
+      events.push({
+        type: "subagent.progress",
+        agentId,
+        event: {
+          type: "tool_use",
+          toolUseId,
+          name,
+          input,
+        },
+      });
+      const rawOutput = asText(toolRecord.output ?? toolRecord.result ?? toolRecord.displayOutput);
+      if (rawOutput || toolRecord.exitCode !== undefined || toolRecord.status !== undefined) {
+        const exitCode = typeof toolRecord.exitCode === "number"
+          ? toolRecord.exitCode
+          : typeof toolRecord.status === "string" && /fail|error/i.test(toolRecord.status)
+            ? 1
+            : undefined;
+        events.push({
+          type: "subagent.progress",
+          agentId,
+          event: {
+            type: "tool_result",
+            toolUseId,
+            name,
+            output: truncateForTown(rawOutput, this.maxOutputChars),
+            ...(exitCode !== undefined ? { meta: { exitCode } } : {}),
+          },
+        });
+      }
+    }
+    return events;
+  }
+
+  private listStatusToolCalls(record: StatusRecord): unknown[] {
+    const calls = record.toolCalls ?? record.tool_calls ?? record.tools;
+    return Array.isArray(calls) ? calls : [];
+  }
+
+  private countStatusToolCalls(record: StatusRecord): number {
+    if (typeof record.toolCalls === "number") return record.toolCalls;
+    if (typeof record.tool_calls === "number") return record.tool_calls;
+    return this.listStatusToolCalls(record).length;
   }
 
   private mapEventMessage(payload: Record<string, unknown>): CodexAdapterEvent[] {

@@ -180,6 +180,186 @@ describe('CodexSessionLogMapper', () => {
     ])
   })
 
+  it('promotes wait_agent summaries and tool calls to subagent.progress before completion', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-1',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"verifier","message":"运行验证"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-1',
+        output: '{"agent_id":"agent-verifier","nickname":"Verifier"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-call-2',
+        name: 'wait_agent',
+        arguments: '{"agent_ids":["agent-verifier"],"timeout_ms":60000}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-verifier',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'wait-call-2',
+          name: 'wait_agent',
+          input: { agent_ids: ['agent-verifier'], timeout_ms: 60000 },
+        },
+      },
+    ])
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-call-2',
+        output: JSON.stringify({
+          status: {
+            'agent-verifier': {
+              summary: '开始跑 npm test',
+              toolCalls: [
+                {
+                  id: 'verify-tool-1',
+                  name: 'shell_command',
+                  input: { command: 'npm test' },
+                  output: 'Exit code: 0\nOutput:\nPASS',
+                  exitCode: 0,
+                },
+              ],
+              completed: '验证通过',
+            },
+          },
+          timed_out: false,
+        }),
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-verifier',
+        event: { type: 'text', content: '开始跑 npm test' },
+      },
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-verifier',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'verify-tool-1',
+          name: 'shell_command',
+          input: { command: 'npm test' },
+        },
+      },
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-verifier',
+        event: {
+          type: 'tool_result',
+          toolUseId: 'verify-tool-1',
+          name: 'shell_command',
+          output: 'Exit code: 0\nOutput:\nPASS',
+          meta: { exitCode: 0 },
+        },
+      },
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-verifier',
+        result: '验证通过',
+        status: 'completed',
+        toolCalls: 1,
+      },
+    ])
+  })
+
+  it('keeps subagents running when wait_agent returns progress without completion', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-1',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"继续实现"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-1',
+        output: '{"agent_id":"agent-worker","nickname":"Worker"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-call-3',
+        name: 'wait_agent',
+        arguments: '{}',
+      },
+    })).toEqual([
+      expect.objectContaining({
+        type: 'subagent.progress',
+        agentId: 'agent-worker',
+      }),
+    ])
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-call-3',
+        output: '{"status":{"agent-worker":{"summary":"还在改代码"}},"timed_out":true}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-worker',
+        event: { type: 'text', content: '还在改代码' },
+      },
+    ])
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-call-4',
+        name: 'wait_agent',
+        arguments: '{}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'wait-call-4',
+        output: '{"status":{"agent-worker":{"completed":"完成"}}}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-worker',
+        result: '完成',
+        status: 'completed',
+        toolCalls: 0,
+      },
+    ])
+  })
+
   it('maps task_complete to a session.ended event with duration and last message', () => {
     const mapper = new CodexSessionLogMapper()
 
