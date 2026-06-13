@@ -1,7 +1,7 @@
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 import { EventTranslator } from './EventTranslator.js'
-import type { GameEvent, NPCPhase } from '../../town-frontend/src/data/GameProtocol.js'
+import type { CodexProjectPhase, GameEvent, NPCPhase } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'
 import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
@@ -11,6 +11,7 @@ import { toolToVfxEvents, toolEmoji, extractFilePath, inferDeliverableCardType, 
 import { ActivityStream } from './ActivityStream.js'
 import { CitizenManager } from './CitizenManager.js'
 import { ProjectDashboardTracker } from './ProjectDashboardTracker.js'
+import { projectPhaseToTownEvents } from './ProjectPhaseVfxMapper.js'
 import {
   decorateCodexSubagentName,
   getCodexSubagentRoleProfile,
@@ -74,6 +75,7 @@ export class DirectorBridge {
   private bubbleDebugEnabled = this.readBubbleDebugFlag()
   private systemInitReceived = false
   private workflowSummonEmitted = false
+  private lastProjectPhase: CodexProjectPhase | null = null
   private npcCharacterAssignments = new Map<string, string>([
     ['user', getCharacterKeyForNpc('user')],
     ['steward', getCharacterKeyForNpc('steward')],
@@ -393,7 +395,9 @@ export class DirectorBridge {
 
   /** Main entry point: dispatch an AgentEvent to the appropriate handler based on type */
   processAgentEvent(event: AgentEvent): void {
-    this.emit(this.projectDashboard.applyAgentEvent(event))
+    const dashboardEvents = this.projectDashboard.applyAgentEvent(event)
+    this.emit(dashboardEvents)
+    this.emitProjectPhaseCue(dashboardEvents)
     if (event.type !== 'text_delta' && event.type !== 'thinking_delta' && event.type !== 'tool_input_delta') {
       console.log('[DirectorBridge] event:', event.type, 'phase:', this.phase, 'name' in event ? (event as { name?: string }).name ?? '' : '')
     }
@@ -577,6 +581,15 @@ export class DirectorBridge {
         this.emit(this.translator.translate(event))
         return
     }
+  }
+
+  private emitProjectPhaseCue(events: GameEvent[]): void {
+    const dashboard = events.find((item): item is Extract<GameEvent, { type: 'project_dashboard_update' }> => item.type === 'project_dashboard_update')
+    if (!dashboard) return
+    const phase = dashboard.state.phase
+    if (phase === this.lastProjectPhase) return
+    this.lastProjectPhase = phase
+    this.emit(projectPhaseToTownEvents(phase, this.stewardName))
   }
 
   processCitizenEvent(npcId: string, event: AgentEvent): void {
