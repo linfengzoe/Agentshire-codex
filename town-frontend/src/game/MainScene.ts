@@ -31,7 +31,7 @@ import { ModeIndicator } from '../ui/ModeIndicator'
 import { ModeManager } from './workflow/ModeManager'
 import { WAYPOINTS, type SceneType, type NPCConfig, type WorkSubState } from '../types'
 import type { IWorldDataSource } from '../data/IWorldDataSource'
-import type { CodexProjectDashboardState, GameEvent, GameNPCRole } from '../data/GameProtocol'
+import type { CodexProjectDashboardState, CodexProjectPhase, GameEvent, GameNPCRole } from '../data/GameProtocol'
 import { t } from '../i18n'
 import type { TownConfigStore } from '../data/TownConfigStore'
 import { EventDispatcher } from './EventDispatcher'
@@ -46,6 +46,18 @@ import { installDebugBindings, removeDebugBindings } from './DebugBindings'
 import { detectProfile } from '../engine/Performance'
 import type { MinigameSlot } from './minigame/MinigameSlot'
 import { BanweiGame } from './minigame/BanweiGame'
+
+export function shouldBlockOfficeWorkMove(params: {
+  isWorkMode: boolean
+  workSubState: WorkSubState | null
+  projectPhase: CodexProjectPhase | null
+  hasWorkstation: boolean
+}): boolean {
+  return params.isWorkMode
+    && params.workSubState === 'working'
+    && params.projectPhase !== 'debugging'
+    && params.hasWorkstation
+}
 
 export class MainScene implements GameScene {
   private engine: Engine
@@ -78,6 +90,7 @@ export class MainScene implements GameScene {
   private timeHUD!: TimeHUD
   private modeManager = new ModeManager()
   private modeIndicator!: ModeIndicator
+  private currentCodexProjectPhase: CodexProjectPhase | null = null
   private minigame: MinigameSlot | null = null
   private _minigameUpdateCb: ((dt: number) => void) | null = null
   private whiteboardHasPlan = false
@@ -634,6 +647,7 @@ export class MainScene implements GameScene {
   }
 
   private onProjectDashboardUpdate(state: CodexProjectDashboardState): void {
+    this.currentCodexProjectPhase = state.phase
     this.whiteboardHasPlan = state.runningTools.length > 0 || state.subagents.length > 0 || state.completedSteps.length > 0
     this.officeBuilder.whiteboard.setProjectDashboard(state)
     if (this.modeIndicator) {
@@ -1278,6 +1292,27 @@ __workflow 演出测试指令:
   ): void {
     const npc = this.npcManager.get(npcId)
     if (!npc) return
+
+    if (shouldBlockOfficeWorkMove({
+      isWorkMode: this.modeManager.isWorkMode(),
+      workSubState: this.modeManager.getWorkSubState(),
+      projectPhase: this.currentCodexProjectPhase,
+      hasWorkstation: this.workflow.officeNpcStations.has(npcId),
+    })) {
+      const stationId = this.workflow.officeNpcStations.get(npcId)
+      const ws = stationId ? this.officeBuilder.getWorkstation(stationId) : undefined
+      if (ws) {
+        npc.stopMoving()
+        npc.mesh.position.set(ws.position.x, 0, ws.position.z)
+        npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+        npc.setWorkstationPose(true)
+        npc.playAnim('typing')
+      }
+      if (requestId) {
+        this.dataSource.sendAction({ type: 'npc_move_completed', npcId, requestId, status: 'interrupted' })
+      }
+      return
+    }
 
     if (npcId === 'user' || npcId === 'steward') {
       this.playerMoveEnabled = false
