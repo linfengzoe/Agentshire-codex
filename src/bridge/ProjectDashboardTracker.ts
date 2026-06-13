@@ -7,6 +7,7 @@ import type {
   GameEvent,
 } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'
+import { inferCodexSubagentRole } from './CodexSubagentRoles.js'
 
 const MAX_COMPLETED_STEPS = 8
 const MAX_RECENT_FILES = 6
@@ -114,7 +115,7 @@ export class ProjectDashboardTracker {
         agentId: event.agentId,
         npcId: event.agentId.replace(/^agent_/, ''),
         displayName: event.displayName ?? event.agentId.replace(/^agent_/, ''),
-        role: inferSubagentRole(event.agentType, event.task, event.displayName),
+        role: inferCodexSubagentRole(event.agentType, event.task, event.displayName),
         status: 'running',
       }
       this.subagents.set(event.agentId, agent)
@@ -204,12 +205,4 @@ function isSuccessfulToolResult(event: Extract<AgentEvent, { type: 'tool_result'
 
 function firstMeaningfulLine(output: string): string {
   return output.split(/\r?\n/).map(line => line.trim()).find(Boolean)?.slice(0, 160) ?? ''
-}
-
-function inferSubagentRole(agentType: string, task: string, displayName?: string): CodexProjectSubagent['role'] {
-  const text = `${agentType} ${task} ${displayName ?? ''}`.toLowerCase()
-  if (/review|审查|审核/.test(text)) return 'Reviewer'
-  if (/verify|test|测试|验证/.test(text)) return 'Verifier'
-  if (/explore|inspect|read|侦察|阅读/.test(text)) return 'Explorer'
-  return 'Worker'
 }

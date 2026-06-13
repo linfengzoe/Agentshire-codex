@@ -11,6 +11,12 @@ import { toolToVfxEvents, toolEmoji, extractFilePath, inferDeliverableCardType, 
 import { ActivityStream } from './ActivityStream.js'
 import { CitizenManager } from './CitizenManager.js'
 import { ProjectDashboardTracker } from './ProjectDashboardTracker.js'
+import {
+  decorateCodexSubagentName,
+  getCodexSubagentRoleProfile,
+  inferCodexSubagentRole,
+  type CodexSubagentRole,
+} from './CodexSubagentRoles.js'
 
 type Phase = 'idle' | 'summoning' | 'assigning' | 'going_to_office' | 'working' | 'publishing' | 'returning'
 
@@ -32,6 +38,7 @@ interface AgentInfo {
   task: string
   status: 'pending' | 'working' | 'completed' | 'failed'
   avatarId?: string
+  collaborationRole?: CodexSubagentRole
 }
 
 const OFFICE_DOOR_SPAWN = { x: 15, z: 24 }
@@ -222,14 +229,14 @@ export class DirectorBridge {
           const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
           this.emit([{
             type: 'workflow_assign',
-            agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task })),
+            agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task, role: a.collaborationRole })),
           } as GameEvent])
         } else if (completedPhase === 'assigning' && this.phase === 'assigning') {
           this.phase = 'going_to_office'
           const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
           this.emit([
             { type: 'mode_change', mode: 'work', workSubState: 'going_to_office' },
-            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId })) } as GameEvent,
+            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId, role: a.collaborationRole })) } as GameEvent,
           ])
         } else if (completedPhase === 'going_to_office' && this.phase === 'going_to_office') {
           this.phase = 'working'
@@ -245,7 +252,7 @@ export class DirectorBridge {
           const retAgents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
           this.emit([{
             type: 'workflow_return',
-            agents: retAgents.map(a => ({ npcId: a.npcId })),
+            agents: retAgents.map(a => ({ npcId: a.npcId, role: a.collaborationRole })),
             wasInOffice: true,
           } as GameEvent])
         } else if (completedPhase === 'returning' && this.phase === 'returning') {
@@ -317,18 +324,22 @@ export class DirectorBridge {
       this.stewardPersonaConfirmed = true
     }
 
-    const agentInfos: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }> = []
+    const agentInfos: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string; role?: CodexSubagentRole }> = []
 
     for (const a of snapshot.agents) {
       const rawName = a.displayName ?? a.id.replace(/^agent_/, '')
-      const displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+      let displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+      const collaborationRole = inferCodexSubagentRole('', a.task ?? '', displayName)
       let npcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName) ?? a.id.replace(/^agent_/, '')
       if (npcId === 'steward' || npcId === 'user') {
         npcId = `temp_${a.id.replace(/^agent_/, '').slice(0, 8)}_${Date.now().toString(36)}`
       }
 
       const isTempWorker = !this.citizens.findCitizenNpcId(displayName) && !this.citizens.findCitizenNpcId(rawName)
-      if (isTempWorker) this.tempWorkerNpcIds.add(npcId)
+      if (isTempWorker) {
+        this.tempWorkerNpcIds.add(npcId)
+        displayName = decorateCodexSubagentName(displayName, collaborationRole)
+      }
 
       this.tracker.registerMapping(a.id, npcId)
       const resolvedStatus = (a.status === 'completed' || a.status === 'failed') ? a.status : 'working'
@@ -338,19 +349,20 @@ export class DirectorBridge {
         displayName,
         task: a.task,
         status: resolvedStatus as AgentInfo['status'],
+        collaborationRole,
       }
       this.agents.set(a.id, info)
       this.agentOrder.push(a.id)
 
       let avatarId: string
       if (isTempWorker) {
-        avatarId = pickUnusedCharacterKey(this.npcCharacterAssignments)
+        avatarId = this.pickRoleAvatar(collaborationRole)
       } else {
         const configured = this.townConfig?.citizens?.find((c: any) => c.id === npcId)
         avatarId = configured?.avatarId ?? getCharacterKeyForNpc(npcId)
       }
       this.npcCharacterAssignments.set(npcId, avatarId)
-      agentInfos.push({ npcId, displayName, task: a.task, status: resolvedStatus, avatarId })
+      agentInfos.push({ npcId, displayName, task: a.task, status: resolvedStatus, avatarId, role: collaborationRole })
     }
 
     this.phase = 'working'
@@ -682,8 +694,9 @@ export class DirectorBridge {
       let displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
       const fallbackNpcId = agentId.replace(/^agent_/, '')
       const task = event.task ?? ''
+      const collaborationRole = inferCodexSubagentRole(event.agentType ?? '', task, displayName)
       const extra = event as Extract<AgentEvent, { type: 'sub_agent'; subtype: 'started' }> & { avatarId?: string; metadata?: { avatarId?: string } }
-      const avatarId = extra.avatarId ?? extra.metadata?.avatarId ?? undefined
+      let avatarId = extra.avatarId ?? extra.metadata?.avatarId ?? undefined
 
       let citizenNpcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName)
 
@@ -707,10 +720,12 @@ export class DirectorBridge {
         if (!displayName || this.citizens.looksLikeIdFragment(rawName)) {
           displayName = `临时工 ${this.tempWorkerNpcIds.size}`
         }
+        displayName = decorateCodexSubagentName(displayName, collaborationRole)
+        avatarId = avatarId ?? this.pickRoleAvatar(collaborationRole)
       }
 
       this.tracker.registerMapping(agentId, npcId)
-      const info: AgentInfo = { agentId, npcId, displayName, task, status: 'pending', avatarId }
+      const info: AgentInfo = { agentId, npcId, displayName, task, status: 'pending', avatarId, collaborationRole }
       this.agents.set(agentId, info)
       this.agentOrder.push(agentId)
 
@@ -897,21 +912,28 @@ export class DirectorBridge {
     }
   }
 
+  private pickRoleAvatar(role: CodexSubagentRole): string {
+    const preferred = getCodexSubagentRoleProfile(role).avatarId
+    const alreadyUsed = [...this.npcCharacterAssignments.values()].includes(preferred)
+    return alreadyUsed ? pickUnusedCharacterKey(this.npcCharacterAssignments) : preferred
+  }
+
   private emitArrival(info: AgentInfo, spawn?: { x: number; z: number }): void {
     let safeAvatarId: string
     if (typeof info.avatarId === 'string' && info.avatarId.trim()) {
       safeAvatarId = info.avatarId.trim()
     } else if (this.tempWorkerNpcIds.has(info.npcId)) {
-      safeAvatarId = pickUnusedCharacterKey(this.npcCharacterAssignments)
+      safeAvatarId = this.pickRoleAvatar(info.collaborationRole ?? 'Worker')
     } else {
       const configured = this.townConfig?.citizens?.find((c: any) => c.id === info.npcId)
       safeAvatarId = configured?.avatarId ?? getCharacterKeyForNpc(info.npcId)
     }
     this.npcCharacterAssignments.set(info.npcId, safeAvatarId)
 
+    const profile = getCodexSubagentRoleProfile(info.collaborationRole ?? 'Worker')
     const spawnVec = spawn ? { x: spawn.x, y: 0, z: spawn.z } : undefined
     this.emit([
-      { type: 'npc_spawn', npcId: info.npcId, name: info.displayName, role: 'programming', category: 'citizen', task: info.task, avatarId: safeAvatarId, spawn: spawnVec, arrivalFanfare: true },
+      { type: 'npc_spawn', npcId: info.npcId, name: info.displayName, role: profile.npcRole, category: 'citizen', specialty: profile.role, task: info.task, avatarId: safeAvatarId, spawn: spawnVec, arrivalFanfare: true },
     ])
   }
 
@@ -921,14 +943,16 @@ export class DirectorBridge {
     const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
     this.emit([{
       type: 'workflow_summon',
-      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task })),
+      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task, role: a.collaborationRole })),
     } as GameEvent])
   }
 
   private assignLateArrival(info: AgentInfo): void {
     info.status = 'working'
+    const stationId = this.tracker.allocateStation(getCodexSubagentRoleProfile(info.collaborationRole ?? 'Worker').stationPreference)
+    if (stationId) this.tracker.setStationForNpc(info.npcId, stationId)
     this.emit([
-      { type: 'workstation_assign', npcId: info.npcId, stationId: '' },
+      { type: 'workstation_assign', npcId: info.npcId, stationId: stationId ?? '' },
     ])
   }
 
@@ -1033,7 +1057,7 @@ export class DirectorBridge {
       type: 'workflow_publish',
       summary: summary || '任务完成了！',
       deliverableCards: deliverableCards as unknown[],
-      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, status: a.status })),
+      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, status: a.status, role: a.collaborationRole })),
     } as GameEvent])
   }
 

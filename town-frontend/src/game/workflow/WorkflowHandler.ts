@@ -15,7 +15,7 @@ import type { DailyBehavior } from '../../npc/DailyBehavior'
 import type { ActivityJournal } from '../../npc/ActivityJournal'
 import type { EncounterManager } from '../../npc/EncounterManager'
 import type { IWorldDataSource } from '../../data/IWorldDataSource'
-import type { ScreenState } from '../../data/GameProtocol'
+import type { CodexSubagentRole, ScreenState } from '../../data/GameProtocol'
 import { SummonOrchestrator } from './SummonOrchestrator'
 import { BriefingOrchestrator } from './BriefingOrchestrator'
 import { getAudioSystem } from '../../audio/AudioSystem'
@@ -53,6 +53,12 @@ export interface WorkflowHandlerDeps {
 export class WorkflowHandler {
   private static readonly OFFICE_WORKER_Z_OFFSET = 0.7
   private static readonly ALL_STATION_IDS = ['B', 'C', 'F', 'G', 'D', 'E', 'H', 'A', 'I', 'J']
+  private static readonly ROLE_STATION_PREFERENCES: Record<CodexSubagentRole, string[]> = {
+    Explorer: ['A', 'B'],
+    Worker: ['C', 'D', 'E', 'F'],
+    Reviewer: ['I', 'J'],
+    Verifier: ['G', 'H'],
+  }
   summonPlayed = false
   pendingSummonNpcs: string[] = []
   workingCitizens = new Set<string>()
@@ -277,7 +283,7 @@ export class WorkflowHandler {
     })
   }
 
-  async startOfficeWork(steward: NPC, npcs: NPC[]): Promise<void> {
+  async startOfficeWork(steward: NPC, npcs: NPC[], agentMeta: Array<{ npcId: string; role?: CodexSubagentRole }> = []): Promise<void> {
     const { npcManager, officeBuilder, modeManager } = this.deps
     const DOOR_POS = { x: 15, z: 24 }
     const SUPERVISOR = { steward: { x: 15, z: 12 }, mayor: { x: 18, z: 18 } }
@@ -285,9 +291,12 @@ export class WorkflowHandler {
     this.officeNpcStations.clear()
     this.officeCompletedNpcIds.clear()
     this.firstBatchNpcIds = new Set(npcs.map(n => n.id))
+    const usedStations = new Set<string>()
+    const roleByNpc = new Map(agentMeta.map(a => [a.npcId, a.role]))
     for (let i = 0; i < npcs.length; i++) {
-      const stationId = WorkflowHandler.ALL_STATION_IDS[i % WorkflowHandler.ALL_STATION_IDS.length]
+      const stationId = this.pickStationForRole(roleByNpc.get(npcs[i].id), usedStations)
       this.officeNpcStations.set(npcs[i].id, stationId)
+      usedStations.add(stationId)
     }
 
     this.deps.stopBehaviorForNpcs(npcs.map(n => n.id))
@@ -623,7 +632,7 @@ export class WorkflowHandler {
     }
   }
 
-  async onRestoreWorkState(agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }>): Promise<void> {
+  async onRestoreWorkState(agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string; role?: CodexSubagentRole }>): Promise<void> {
     const { npcManager, officeBuilder, modeManager } = this.deps
     const modeIndicator = this.deps.getModeIndicator()
 
@@ -650,9 +659,11 @@ export class WorkflowHandler {
     }
 
     this.officeNpcStations.clear()
+    const preferredStations = new Set<string>()
     for (let i = 0; i < agents.length; i++) {
-      const stationId = WorkflowHandler.ALL_STATION_IDS[i % WorkflowHandler.ALL_STATION_IDS.length]
+      const stationId = this.pickStationForRole(agents[i].role, preferredStations)
       this.officeNpcStations.set(agents[i].npcId, stationId)
+      preferredStations.add(stationId)
     }
 
     const doneCount = agents.filter(a => a.status === 'completed' || a.status === 'failed').length
@@ -674,7 +685,7 @@ export class WorkflowHandler {
     const usedStations = new Set<string>()
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i]
-      const stationId = WorkflowHandler.ALL_STATION_IDS[i % WorkflowHandler.ALL_STATION_IDS.length]
+      const stationId = this.officeNpcStations.get(a.npcId) ?? this.pickStationForRole(a.role, usedStations)
       if (usedStations.has(stationId)) continue
       usedStations.add(stationId)
 
@@ -727,6 +738,13 @@ export class WorkflowHandler {
       if (!used.has(id)) return id
     }
     return null
+  }
+
+  private pickStationForRole(role: CodexSubagentRole | undefined, used: Set<string>): string {
+    const preferred = role ? WorkflowHandler.ROLE_STATION_PREFERENCES[role] ?? [] : []
+    const ordered = [...preferred, ...WorkflowHandler.ALL_STATION_IDS]
+      .filter((id, index, all) => all.indexOf(id) === index)
+    return ordered.find(id => !used.has(id)) ?? WorkflowHandler.ALL_STATION_IDS[0]
   }
 
   private resumeNpcDailyBehavior(npcId: string): void {

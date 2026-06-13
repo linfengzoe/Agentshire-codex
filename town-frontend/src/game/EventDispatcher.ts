@@ -1,5 +1,5 @@
 // @desc Central GameEvent dispatcher — routes events to handler callbacks with zero business logic
-import type { CodexProjectDashboardState, GameEvent, ScreenState } from '../data/GameProtocol'
+import type { CodexProjectDashboardState, CodexSubagentRole, GameEvent, ScreenState } from '../data/GameProtocol'
 import type { TownConfig } from '../data/TownConfig'
 
 export interface EventHandlers {
@@ -39,7 +39,7 @@ export interface EventHandlers {
   onNpcActivityRestore(npcId: string, entries: Array<{ kind: string; icon?: string; message?: string; status?: string; todos?: Array<{ id: number; content: string; status: string }> }>): void
   onSkillLearned(slug: string): void
   onModeSwitch(mode: string, taskDescription?: string): void
-  onRestoreWorkState(agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }>): void
+  onRestoreWorkState(agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string; role?: CodexSubagentRole }>): void
   onSetSessionId(sessionId: string): void
   onTownConfigReady(config: TownConfig): void
   onNpcChangeModel(npcId: string, characterKey: string, modelUrl?: string, modelTransform?: any, animMapping?: any, animFileUrls?: string[]): void

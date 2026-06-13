@@ -1,5 +1,5 @@
 // @desc Central choreographer: receives high-level workflow intent events from Bridge, delegates to Orchestrators
-import type { GameEvent } from '../../data/GameProtocol'
+import type { CodexSubagentRole, GameEvent } from '../../data/GameProtocol'
 import type { ScreenState } from '../../data/GameProtocol'
 import type { IWorldDataSource } from '../../data/IWorldDataSource'
 import type { WorkflowHandler } from './WorkflowHandler'
@@ -114,6 +114,25 @@ export class Choreographer {
     }
   }
 
+  private getRoleBriefPrefix(role?: CodexSubagentRole): string {
+    if (getLocale() === 'en') {
+      switch (role) {
+        case 'Explorer': return 'scout first'
+        case 'Worker': return 'implement'
+        case 'Reviewer': return 'review'
+        case 'Verifier': return 'verify'
+        default: return 'take'
+      }
+    }
+    switch (role) {
+      case 'Explorer': return '先侦察'
+      case 'Worker': return '负责实现'
+      case 'Reviewer': return '重点审查'
+      case 'Verifier': return '跑验证'
+      default: return '处理'
+    }
+  }
+
   // ── Pre-work sequences (Step 3.1) ──
 
   private async runSummonSequence(event: GameEvent & { type: 'workflow_summon' }): Promise<void> {
@@ -161,7 +180,7 @@ export class Choreographer {
     if (npcs.length === 0) return
 
     if (this.deps.getSceneType() === 'office') {
-      await this.deps.workflow.startOfficeWork(steward, npcs)
+      await this.deps.workflow.startOfficeWork(steward, npcs, event.agents)
       this.deps.dataSource.sendAction({ type: 'workflow_phase_complete', phase: 'assigning' })
       return
     }
@@ -169,8 +188,8 @@ export class Choreographer {
     const lines = event.agents.map(a => {
       const hasRealTask = a.task && a.task !== a.displayName
       if (!hasRealTask) return getLocale() === 'en'
-        ? `${a.displayName}, it's yours!`
-        : `${a.displayName}，交给你了！`
+        ? `${a.displayName}, ${this.getRoleBriefPrefix(a.role)} this.`
+        : `${a.displayName}，${this.getRoleBriefPrefix(a.role)}。`
       const taskMatch = a.task.match(/## 任务\n([\s\S]*?)(?:\n## |$)/)
       const rawTask = taskMatch ? taskMatch[1].trim() : a.task
       const firstLine = rawTask.split('\n')[0]
@@ -178,7 +197,9 @@ export class Choreographer {
         .replace(/[：:。.，,]+$/, '')
         .trim()
       const brief = firstLine.length > 25 ? firstLine.slice(0, 22) + '...' : firstLine
-      return `${a.displayName}，${brief}`
+      return getLocale() === 'en'
+        ? `${a.displayName}, ${this.getRoleBriefPrefix(a.role)}: ${brief}`
+        : `${a.displayName}，${this.getRoleBriefPrefix(a.role)}：${brief}`
     })
     this.deps.workflow.pendingBriefingLines = lines
 
@@ -207,7 +228,7 @@ export class Choreographer {
     const npcs = this.resolveNpcs(event.agents)
 
     await this.deps.switchScene('office')
-    await this.deps.workflow.startOfficeWork(steward, npcs)
+    await this.deps.workflow.startOfficeWork(steward, npcs, event.agents)
   }
 
   // ── Post-work sequences (Step 3.2) ──

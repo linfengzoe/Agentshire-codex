@@ -57,9 +57,11 @@ export class StateTracker {
     }
   }
 
-  /** Allocate the next available workstation ID, or null if all are in use */
-  allocateStation(): string | null {
-    for (const id of WORKSTATION_IDS) {
+  /** Allocate the next available workstation ID, honoring preferred IDs first when provided */
+  allocateStation(preferredIds: string[] = []): string | null {
+    const orderedIds = [...preferredIds, ...WORKSTATION_IDS]
+      .filter((id, index, all) => Boolean(id) && all.indexOf(id) === index)
+    for (const id of orderedIds) {
       if (!this.usedStations.has(id)) {
         this.usedStations.add(id)
         return id

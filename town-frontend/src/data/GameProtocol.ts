@@ -61,6 +61,8 @@ export interface CodexProjectSubagent {
   status: 'running' | 'completed' | 'failed'
 }
 
+export type CodexSubagentRole = CodexProjectSubagent['role']
+
 export interface CodexProjectDashboardState {
   phase: CodexProjectPhase
   currentTask: string
@@ -164,11 +166,11 @@ export type GameEvent =
   | { type: 'game_completion_popup'; gameName: string; gameUrl: string; developers: string[]; previewImageUrl?: string }
 
   // Workflow intent events (Bridge → Choreographer)
-  | { type: 'workflow_summon'; agents: Array<{ npcId: string; displayName: string; task: string }> }
-  | { type: 'workflow_assign'; agents: Array<{ npcId: string; displayName: string; task: string }> }
-  | { type: 'workflow_go_office'; agents: Array<{ npcId: string; stationId?: string }> }
-  | { type: 'workflow_publish'; summary: string; deliverableCards: unknown[]; agents: Array<{ npcId: string; displayName: string; status: string }> }
-  | { type: 'workflow_return'; agents: Array<{ npcId: string }>; wasInOffice: boolean }
+  | { type: 'workflow_summon'; agents: Array<{ npcId: string; displayName: string; task: string; role?: CodexSubagentRole }> }
+  | { type: 'workflow_assign'; agents: Array<{ npcId: string; displayName: string; task: string; role?: CodexSubagentRole }> }
+  | { type: 'workflow_go_office'; agents: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole }> }
+  | { type: 'workflow_publish'; summary: string; deliverableCards: unknown[]; agents: Array<{ npcId: string; displayName: string; status: string; role?: CodexSubagentRole }> }
+  | { type: 'workflow_return'; agents: Array<{ npcId: string; role?: CodexSubagentRole }>; wasInOffice: boolean }
 
   // Scene / FX / progress / world / camera
   | { type: 'scene_switch'; target: SceneType }
@@ -213,7 +215,7 @@ export type GameEvent =
   | { type: 'town_config_ready'; config: TownConfig }
 
   // Work state restoration
-  | { type: 'restore_work_state'; agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }> }
+  | { type: 'restore_work_state'; agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string; role?: CodexSubagentRole }> }
 
   // Session management
   | { type: 'set_session_id'; sessionId: string }
