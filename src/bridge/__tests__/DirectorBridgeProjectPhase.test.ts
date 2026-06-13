@@ -25,6 +25,8 @@ describe('DirectorBridge project phase cues', () => {
     expect(emitted.filter(e => e.type === 'project_dashboard_update')).toHaveLength(2)
     expect(emitted).toContainEqual({ type: 'dialog_message', npcId: 'steward', text: '我先读项目结构。', isStreaming: false })
     expect(emitted.filter(e => e.type === 'dialog_message' && e.text === '我先读项目结构。')).toHaveLength(1)
+    expect(emitted.some(e => e.type === 'npc_move_to')).toBe(false)
+    expect(emitted.some(e => e.type === 'camera_move')).toBe(false)
 
     bridge.processAgentEvent({
       type: 'tool_use',

@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { projectPhaseToTownEvents } from '../ProjectPhaseVfxMapper.js'
 
 describe('ProjectPhaseVfxMapper', () => {
+  function expectNoPhaseMovement(events: ReturnType<typeof projectPhaseToTownEvents>): void {
+    expect(events.some(event => event.type === 'npc_move_to')).toBe(false)
+    expect(events.some(event => event.type === 'camera_move')).toBe(false)
+  }
+
   it('maps reading into investigation cues', () => {
-    expect(projectPhaseToTownEvents('reading', 'steward')).toEqual([
-      { type: 'npc_move_to', npcId: 'steward', target: { x: 18, y: 0, z: 13 }, speed: 3 },
-      { type: 'camera_move', target: { x: 18, y: 0, z: 13 }, follow: 'steward', durationMs: 900 },
+    const events = projectPhaseToTownEvents('reading', 'steward')
+    expectNoPhaseMovement(events)
+    expect(events).toEqual([
       { type: 'npc_phase', npcId: 'steward', phase: 'thinking' },
       { type: 'npc_emoji', npcId: 'steward', emoji: '🔎' },
       { type: 'dialog_message', npcId: 'steward', text: '我先读项目结构。', isStreaming: false },
@@ -15,21 +20,17 @@ describe('ProjectPhaseVfxMapper', () => {
   })
 
   it('maps verification and debugging into lab-style status cues', () => {
-    expect(projectPhaseToTownEvents('verifying', 'steward')).toContainEqual({
-      type: 'npc_move_to',
-      npcId: 'steward',
-      target: { x: 29, y: 0, z: 18 },
-      speed: 3.5,
-    })
-    expect(projectPhaseToTownEvents('verifying', 'steward')).toContainEqual({
+    const verifyingEvents = projectPhaseToTownEvents('verifying', 'steward')
+    expectNoPhaseMovement(verifyingEvents)
+    expect(verifyingEvents).toContainEqual({
       type: 'fx',
       effect: 'statusLight',
       params: { npcId: 'steward', status: 'running', label: 'verify' },
     })
 
-    expect(projectPhaseToTownEvents('debugging', 'steward')).toEqual([
-      { type: 'npc_move_to', npcId: 'steward', target: { x: 24, y: 0, z: 19 }, speed: 4 },
-      { type: 'camera_move', target: { x: 24, y: 0, z: 19 }, follow: 'steward', durationMs: 700 },
+    const debuggingEvents = projectPhaseToTownEvents('debugging', 'steward')
+    expectNoPhaseMovement(debuggingEvents)
+    expect(debuggingEvents).toEqual([
       { type: 'npc_phase', npcId: 'steward', phase: 'error' },
       { type: 'npc_emoji', npcId: 'steward', emoji: '🚨' },
       { type: 'npc_emote', npcId: 'steward', emote: 'frustrated' },
