@@ -148,6 +148,16 @@ function extractNestedAgentId(record: Record<string, unknown>): string {
     || asText(status?.agent_id ?? status?.agentId);
 }
 
+function extractControlToolAgentId(name: string, input: Record<string, unknown>): string {
+  if (name === "send_input" || name === "close_agent") {
+    return asText(input.target);
+  }
+  if (name === "resume_agent") {
+    return asText(input.id);
+  }
+  return "";
+}
+
 function parseSubagentNotification(text: string): Record<string, unknown> | null {
   const match = text.match(/<subagent_notification>\s*([\s\S]*?)\s*<\/subagent_notification>/);
   if (!match) return null;
@@ -214,9 +224,12 @@ export class CodexSessionLogMapper {
         const toolCallId = asText(payload.call_id ?? payload.id);
         const name = asText(payload.name) || "unknown";
         const input = parseInput(payload.arguments ?? payload.input);
-        if (toolCallId) this.tools.set(toolCallId, { name, input });
+        const agentId = extractControlToolAgentId(name, input);
+        const trackedAgentId = agentId && this.subagents.has(agentId) ? agentId : undefined;
+        if (toolCallId) this.tools.set(toolCallId, { name, input, agentId: trackedAgentId });
         if (name === "spawn_agent") return [];
         if (name === "wait_agent") return this.mapWaitAgentStart(toolCallId, input);
+        if (trackedAgentId) return [this.mapSubagentToolUse(trackedAgentId, toolCallId, name, input)];
         return [{ type: "tool.started", toolCallId, name, input }];
       }
 
@@ -232,6 +245,9 @@ export class CodexSessionLogMapper {
         }
         if (tool.name === "wait_agent") {
           return this.mapWaitAgentOutput(rawOutput);
+        }
+        if (tool.agentId && this.subagents.has(tool.agentId)) {
+          return this.mapSubagentControlToolOutput(toolCallId, tool, rawOutput);
         }
         const output = truncateForTown(rawOutput, this.maxOutputChars);
         return [{
@@ -276,6 +292,63 @@ export class CodexSessionLogMapper {
       model: "gpt-5-codex",
       displayName,
     }];
+  }
+
+  private mapSubagentToolUse(
+    agentId: string,
+    toolUseId: string,
+    name: string,
+    input: Record<string, unknown>,
+  ): CodexAdapterEvent {
+    return {
+      type: "subagent.progress",
+      agentId,
+      event: {
+        type: "tool_use",
+        toolUseId,
+        name,
+        input,
+      },
+    };
+  }
+
+  private mapSubagentControlToolOutput(
+    toolCallId: string,
+    tool: ToolInfo,
+    rawOutput: string,
+  ): CodexAdapterEvent[] {
+    const agentId = tool.agentId;
+    if (!agentId) return [];
+
+    const output = truncateForTown(rawOutput, this.maxOutputChars);
+    const events: CodexAdapterEvent[] = [{
+      type: "subagent.progress",
+      agentId,
+      event: {
+        type: "tool_result",
+        toolUseId: toolCallId,
+        name: tool.name,
+        output,
+      },
+    }];
+
+    if (tool.name !== "close_agent") return events;
+
+    const parsed = parseInput(rawOutput);
+    const previousStatus = asRecord(parsed.previous_status) ?? asRecord(parsed.status) ?? parsed;
+    events.push(...this.mapSubagentStatusProgress(agentId, previousStatus));
+
+    const completed = asText(previousStatus.completed);
+    const failed = asText(previousStatus.failed ?? previousStatus.error);
+    events.push({
+      type: "subagent.completed",
+      agentId,
+      result: completed || failed || "Sub-agent closed before completion.",
+      status: failed ? "failed" : completed ? "completed" : "killed",
+      toolCalls: this.countStatusToolCalls(previousStatus),
+    });
+    this.subagents.delete(agentId);
+    return events;
   }
 
   private mapWaitAgentStart(

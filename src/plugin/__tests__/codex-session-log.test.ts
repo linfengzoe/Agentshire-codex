@@ -571,6 +571,139 @@ describe('CodexSessionLogMapper', () => {
     })).toEqual([])
   })
 
+  it('routes send_input calls through the targeted running subagent', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-control',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"实现工位屏幕"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-control',
+        output: '{"agent_id":"agent-control","nickname":"Worker"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'send-call-1',
+        name: 'send_input',
+        namespace: 'multi_agent_v1',
+        arguments: '{"target":"agent-control","message":"继续补测试","interrupt":false}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-control',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'send-call-1',
+          name: 'send_input',
+          input: { target: 'agent-control', message: '继续补测试', interrupt: false },
+        },
+      },
+    ])
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'send-call-1',
+        output: '{"queued":true}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-control',
+        event: {
+          type: 'tool_result',
+          toolUseId: 'send-call-1',
+          name: 'send_input',
+          output: '{"queued":true}',
+        },
+      },
+    ])
+  })
+
+  it('turns close_agent previous_status into a final subagent lifecycle event', () => {
+    const mapper = new CodexSessionLogMapper()
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-call-close',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"explorer","message":"检查第一层接入"}',
+      },
+    })
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-call-close',
+        output: '{"agent_id":"agent-close","nickname":"Closer"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'close-call-1',
+        name: 'close_agent',
+        namespace: 'multi_agent_v1',
+        arguments: '{"target":"agent-close"}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-close',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'close-call-1',
+          name: 'close_agent',
+          input: { target: 'agent-close' },
+        },
+      },
+    ])
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'close-call-1',
+        output: '{"previous_status":{"completed":"检查完成"}}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-close',
+        event: {
+          type: 'tool_result',
+          toolUseId: 'close-call-1',
+          name: 'close_agent',
+          output: '{"previous_status":{"completed":"检查完成"}}',
+        },
+      },
+      {
+        type: 'subagent.completed',
+        agentId: 'agent-close',
+        result: '检查完成',
+        status: 'completed',
+        toolCalls: 0,
+      },
+    ])
+  })
+
   it('maps task_complete to a session.ended event with duration and last message', () => {
     const mapper = new CodexSessionLogMapper()
 
