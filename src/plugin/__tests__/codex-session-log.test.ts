@@ -179,6 +179,121 @@ describe('CodexSessionLogMapper', () => {
     ])
   })
 
+  it('promotes batch spawn_agent outputs to multiple subagent.started events', () => {
+    const mapper = new CodexSessionLogMapper()
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-batch',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"并行实现任务"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-batch',
+        output: JSON.stringify({
+          agents: [
+            { agent_id: 'agent-a', nickname: 'Ada' },
+            { agent: { id: 'agent-b', displayName: 'Grace' } },
+          ],
+        }),
+      },
+    })).toEqual([
+      {
+        type: 'subagent.started',
+        agentId: 'agent-a',
+        agentType: 'worker',
+        parentToolUseId: 'spawn-batch',
+        task: '并行实现任务',
+        model: 'gpt-5-codex',
+        displayName: 'Ada',
+      },
+      {
+        type: 'subagent.started',
+        agentId: 'agent-b',
+        agentType: 'worker',
+        parentToolUseId: 'spawn-batch',
+        task: '并行实现任务',
+        model: 'gpt-5-codex',
+        displayName: 'Grace',
+      },
+    ])
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'wait-batch',
+        name: 'wait_agent',
+        arguments: '{}',
+      },
+    })).toEqual([
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-a',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'wait-batch',
+          name: 'wait_agent',
+          input: {},
+        },
+      },
+      {
+        type: 'subagent.progress',
+        agentId: 'agent-b',
+        event: {
+          type: 'tool_use',
+          toolUseId: 'wait-batch',
+          name: 'wait_agent',
+          input: {},
+        },
+      },
+    ])
+  })
+
+  it('accepts root-array spawn_agent outputs from tool runtimes', () => {
+    const mapper = new CodexSessionLogMapper()
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-root-array',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"reviewer","message":"并行审查"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-root-array',
+        output: JSON.stringify([
+          { id: 'agent-review-a', name: 'Reviewer A' },
+          { id: 'agent-review-b', name: 'Reviewer B' },
+        ]),
+      },
+    })).toEqual([
+      expect.objectContaining({
+        type: 'subagent.started',
+        agentId: 'agent-review-a',
+        displayName: 'Reviewer A',
+      }),
+      expect.objectContaining({
+        type: 'subagent.started',
+        agentId: 'agent-review-b',
+        displayName: 'Reviewer B',
+      }),
+    ])
+  })
+
   it('promotes completed wait_agent statuses to subagent.completed events', () => {
     const mapper = new CodexSessionLogMapper()
     mapper.mapRecord({

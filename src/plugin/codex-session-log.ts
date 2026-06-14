@@ -46,6 +46,15 @@ function parseInput(raw: unknown): Record<string, unknown> {
   }
 }
 
+function parseJsonOutput(raw: string): unknown {
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return parseInput(raw);
+  }
+}
+
 function normalizeToolInput(name: string, input: Record<string, unknown>): Record<string, unknown> {
   if (name === "apply_patch" && typeof input.arguments === "string" && typeof input.patch !== "string") {
     return { ...input, patch: input.arguments };
@@ -175,6 +184,20 @@ function parseSubagentNotification(text: string): Record<string, unknown> | null
   }
 }
 
+function listSpawnedAgentRecords(output: Record<string, unknown>): Record<string, unknown>[] {
+  const directList = output.agents ?? output.result ?? output.results;
+  if (Array.isArray(directList)) {
+    return directList
+      .map((item) => asRecord(item))
+      .filter((record): record is Record<string, unknown> => record !== null);
+  }
+
+  const agent = asRecord(output.agent);
+  if (agent) return [output];
+  if (extractNestedAgentId(output)) return [output];
+  return [];
+}
+
 export function truncateForTown(text: string, maxChars = DEFAULT_MAX_OUTPUT_CHARS): string {
   if (text.length <= maxChars) return text;
   if (maxChars <= 3) return ".".repeat(Math.max(0, maxChars));
@@ -277,28 +300,50 @@ export class CodexSessionLogMapper {
     input: Record<string, unknown>,
     rawOutput: string,
   ): CodexAdapterEvent[] {
-    const output = parseInput(rawOutput);
-    const agentId = extractNestedAgentId(output);
-    if (!agentId) return [];
+    const parsedOutput = parseJsonOutput(rawOutput);
+    const output = asRecord(parsedOutput) ?? {};
+    const agentRecords = listSpawnedAgentRecords(output);
+    if (Array.isArray(parsedOutput)) {
+      agentRecords.push(
+        ...parsedOutput
+          .map((item) => asRecord(item))
+          .filter((record): record is Record<string, unknown> => record !== null),
+      );
+    }
     const agentType = asText(input.agent_type ?? input.agentType) || "worker";
     const task = asText(input.message ?? input.task) || "Codex sub-agent task";
-    const agent = asRecord(output.agent);
-    const displayName = asText(output.nickname ?? output.displayName ?? output.name ?? agent?.nickname ?? agent?.displayName ?? agent?.name) || undefined;
-    this.subagents.set(agentId, {
-      agentType,
-      task,
-      displayName,
-      parentToolUseId: toolCallId,
-    });
-    return [{
-      type: "subagent.started",
-      agentId,
-      agentType,
-      parentToolUseId: toolCallId,
-      task,
-      model: "gpt-5-codex",
-      displayName,
-    }];
+    const events: CodexAdapterEvent[] = [];
+
+    for (const agentRecord of agentRecords) {
+      const agentId = extractNestedAgentId(agentRecord);
+      if (!agentId) continue;
+      const agent = asRecord(agentRecord.agent);
+      const displayName = asText(
+        agentRecord.nickname
+        ?? agentRecord.displayName
+        ?? agentRecord.name
+        ?? agent?.nickname
+        ?? agent?.displayName
+        ?? agent?.name,
+      ) || undefined;
+      this.subagents.set(agentId, {
+        agentType,
+        task,
+        displayName,
+        parentToolUseId: toolCallId,
+      });
+      events.push({
+        type: "subagent.started",
+        agentId,
+        agentType,
+        parentToolUseId: toolCallId,
+        task,
+        model: "gpt-5-codex",
+        displayName,
+      });
+    }
+
+    return events;
   }
 
   private mapSubagentToolUse(
