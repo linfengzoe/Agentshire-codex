@@ -1,21 +1,49 @@
 # Codex 接入 Agentshire 项目说明
 
-本文说明 Codex 如何接入 Agentshire 小镇的第一层可视化链路，以及本地开发、验证和使用方式。
+本文说明 Codex 如何接入 Agentshire 小镇的第一层可视化链路，以及后续网页端运行 Codex Agent 的演进方向。
 
 ## 目标
 
-Codex 接入的目标不是让网页端复制一套 Agent 运行时，而是把 Codex 当前会话、主 Agent 和子 Agent 的工作状态实时映射到小镇中：
+当前阶段的目标是“Codex 任务映射”：不在网页端复制一套 Agent 运行时，而是把 Codex 当前会话、主 Agent 和子 Agent 的工作状态实时映射到小镇中：
 
 - 主 Codex 会话映射为管家角色 `shire`，负责接收当前会话进度、调度和汇报。
 - 子 Agent 映射到已有居民 NPC，并绑定到办公室已有 PC 工位。
 - NPC 头顶气泡、工位屏幕、顶部工作条和聊天流展示当前任务状态。
 - 任务结束后，工位释放，工作 NPC 离开办公室；办公室无人工作时，观察者自动回到小镇。
 
-网页端只做可视化展示和本地编辑器交互，不额外消耗一份 LLM 推理，也不把 Codex 的项目文件复制到前端。
+当前阶段网页端只做可视化展示和本地编辑器交互，不额外消耗一份 LLM 推理，也不把 Codex 的项目文件复制到前端。
+
+后续阶段会继续实现“网页端 Codex Agent 对话运行”：用户可以直接在小镇网页里发起 Codex Agent 对话、运行任务、观察执行过程，并把运行中的 Agent 继续映射到小镇居民和工位上。
+
+## 阶段边界
+
+### 第一阶段：Codex 任务映射
+
+第一阶段只接入已有 Codex/OpenClaw 运行链路，把外部已经发生的任务过程映射到小镇：
+
+- Codex 任务仍在当前 Codex 会话或 OpenClaw Runtime 中执行。
+- 插件层监听 hook、日志和子 Agent 状态。
+- 小镇网页接收事件并展示 NPC 工作状态。
+- 网页端不直接创建 Codex Agent，也不承担代码执行入口。
+- token 消耗来自原本的 Codex 会话和子 Agent，不因为小镇观察而翻倍。
+
+这一阶段的成功标准是：用户在 Codex 当前会话中安排任务时，小镇能准确展示谁在做、在哪个工位做、进展到哪一步、何时完成并离开。
+
+### 第二阶段：网页端运行 Codex Agent
+
+第二阶段会把小镇网页从“观察端”升级为“交互与运行端”：
+
+- 用户可以在网页端输入任务并选择目标居民或 Agent。
+- 插件层把网页输入路由到 Codex/OpenClaw Agent 会话。
+- Agent 运行过程继续通过同一套事件协议回流到小镇。
+- 网页端展示对话流、工具调用、子 Agent 分工、工位屏幕和完成结果。
+- 需要明确权限边界，例如工作区路径、文件读写权限、任务确认和中止能力。
+
+第二阶段会真实发起 Codex Agent 运行，因此会按实际 Agent 调用产生 token 和执行成本。它不是第一阶段“只观察”的无额外推理模式。
 
 ## 架构位置
 
-Codex 接入的是 Agentshire 架构中的第一层入口：OpenClaw Runtime 到 Plugin Layer 的事件流。
+第一阶段接入的是 Agentshire 架构中的第一层入口：OpenClaw Runtime 到 Plugin Layer 的事件流。
 
 ```text
 Codex / OpenClaw Runtime
@@ -24,6 +52,17 @@ Codex / OpenClaw Runtime
   -> DirectorBridge phase state machine
   -> GameEvent
   -> Three.js town frontend
+```
+
+第二阶段会在网页端输入和 Plugin Layer 之间增加一条“任务发起”链路：
+
+```text
+Town web input
+  -> plugin task router
+  -> Codex / OpenClaw Agent session
+  -> hook translator
+  -> AgentEvent over WebSocket
+  -> town visualization
 ```
 
 对应核心模块：
@@ -73,6 +112,13 @@ Codex / OpenClaw Runtime
    - 子任务完成后释放工位并离开办公室。
    - 办公室空置时回到小镇。
 
+第二阶段网页端运行 Codex Agent 后，工作流入口会变成：
+
+1. 用户在小镇网页端输入任务。
+2. 插件层创建或选择 Codex/OpenClaw Agent 会话。
+3. 运行时执行任务并产生 hook、工具调用和子 Agent 事件。
+4. 小镇使用与第一阶段相同的映射逻辑展示 NPC 工作。
+
 ## 多 Agent 展示
 
 多子 Agent 并行时，小镇不会创建一套新的虚拟身份，而是把子 Agent 绑定到已有居民 NPC：
@@ -86,14 +132,16 @@ Codex / OpenClaw Runtime
 
 ## 数据与文件边界
 
-网页端主要展示事件流和本地可视化状态：
+第一阶段网页端主要展示事件流和本地可视化状态：
 
 - 不会额外发起一份 Codex LLM 推理。
 - 不会把项目源文件复制到浏览器。
 - 不会把 Codex 会话日志保存成新的项目文件，除非插件层明确实现了会话历史或配置保存。
 - 角色工坊的保存只写本地角色配置草稿，例如 `town-data/citizen-config-draft.json`。
 
-因此，正常小镇观察不会造成两倍 token 消耗。额外 token 主要来自真正新发起的 Agent、子 Agent、隐式 NPC 对话或 LLM proxy 请求。
+因此，第一阶段正常小镇观察不会造成两倍 token 消耗。额外 token 主要来自真正新发起的 Agent、子 Agent、隐式 NPC 对话或 LLM proxy 请求。
+
+第二阶段网页端运行 Codex Agent 时，网页输入会成为新的任务入口。此时需要把任务运行、权限确认、文件读写和中止控制都放在插件层或运行时层处理，前端只负责采集用户意图和展示状态。
 
 ## 本地启动
 
@@ -150,9 +198,17 @@ npm run build
 - 子任务完成后 NPC 离开办公室，工位被释放。
 - 最后一个工作 NPC 离开后，办公室空置时自动返回小镇。
 
+第二阶段新增验收重点：
+
+- 网页端输入任务后，插件层能创建或接入 Codex/OpenClaw Agent 会话。
+- 任务运行期间，网页对话流和小镇 NPC 状态保持一致。
+- 用户能看到任务权限、当前工作区和文件影响范围。
+- 用户能中止或结束正在运行的网页端 Agent 任务。
+
 ## 后续可扩展点
 
 - 给 PC 屏幕增加更完整的任务详情面板，包括当前文件、工具调用摘要和最近日志。
 - 在角色工坊中显式配置“居民适合承担的子 Agent 类型”。
 - 把子 Agent 任务分配策略从简单可用工位扩展为按专业、负载和历史表现分配。
-- 增加只读的会话回放模式，用于复盘一次 Codex 工作流。
+- 增加网页端 Codex Agent 任务入口，让用户直接在小镇里发起任务。
+- 增加任务权限确认、中止任务、会话恢复和只读回放能力。
