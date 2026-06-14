@@ -1262,7 +1262,12 @@ export class DirectorBridge {
       }
       this.lastToolInputByNpc.delete(info.npcId)
     }
-    if (!changed) return
+    if (!changed) {
+      if (this.allAgentsDone()) {
+        this.emit([{ type: 'mode_change', mode: 'life' }])
+      }
+      return
+    }
 
     for (const info of this.agents.values()) {
       this.emitDashboardForEvent({
@@ -1277,6 +1282,7 @@ export class DirectorBridge {
     this.emit([
       ...completedEvents,
       { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
+      { type: 'mode_change', mode: 'life' },
     ])
   }
 
@@ -1295,6 +1301,7 @@ export class DirectorBridge {
         isTempWorker: false,
       } as GameEvent,
       { type: 'progress', current: 0, total: 0, label: '0/0 完成' },
+      { type: 'mode_change', mode: 'life' },
     ])
   }
 

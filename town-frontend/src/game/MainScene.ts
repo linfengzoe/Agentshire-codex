@@ -1554,6 +1554,7 @@ __workflow 演出测试指令:
           this.walkToDoor('exit_office', officeDoor)
           return
         }
+        return
       }
 
       this.pendingDoorInteraction = null
@@ -1604,6 +1605,10 @@ __workflow 演出测试指令:
     const targetScene = sceneMap[buildingId]
     if (!targetScene) return
     if (targetScene === 'museum') return
+
+    if (this.sceneSwitcher.getSceneType() === 'office' && buildingId !== 'exit_office') {
+      return
+    }
 
     const mayor = this.npcManager.get('user')
     if (!mayor || !mayor.mesh.visible) return

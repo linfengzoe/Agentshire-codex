@@ -51,6 +51,7 @@ describe('DirectorBridge workstation orchestration', () => {
       stationId,
       isTempWorker: false,
     })
+    expect(emitted).toContainEqual({ type: 'mode_change', mode: 'life' })
   })
 
   it('shows the real file name on desk screens for raw Codex apply_patch arguments', () => {
@@ -355,6 +356,7 @@ describe('DirectorBridge workstation orchestration', () => {
       stationId,
       isTempWorker: false,
     })
+    expect(emitted).toContainEqual({ type: 'mode_change', mode: 'life' })
   })
 
   it('marks active subagents done when a turn ends without explicit subagent completion', () => {
@@ -393,6 +395,43 @@ describe('DirectorBridge workstation orchestration', () => {
       stationId,
       isTempWorker: false,
     })
+    expect(emitted).toContainEqual({ type: 'mode_change', mode: 'life' })
+  })
+
+  it('leaves work mode when a turn ends after all subagents already completed', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_1', name: '岩', specialty: '架构设计', avatarId: 'char-male-b' },
+      ],
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: '审查回合收尾',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'done',
+      agentId: 'agent_reviewer',
+      status: 'completed',
+    })
+
+    emitted.length = 0
+    bridge.processAgentEvent({ type: 'turn_end' })
+
+    expect(emitted).toContainEqual({ type: 'mode_change', mode: 'life' })
   })
 
   it('defers turn-end completion until subagents finish entering the office', () => {
