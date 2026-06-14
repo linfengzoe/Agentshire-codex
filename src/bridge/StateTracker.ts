@@ -54,7 +54,13 @@ export class StateTracker {
     const agentId = this.npcToAgent.get(npcId)
     if (agentId) {
       this.removeMapping(agentId)
+      return
     }
+    const state = this.npcStates.get(npcId)
+    if (state?.stationId) {
+      this.usedStations.delete(state.stationId)
+    }
+    this.npcStates.delete(npcId)
   }
 
   /** Allocate the next available workstation ID, honoring preferred IDs first when provided */

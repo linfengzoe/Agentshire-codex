@@ -27,6 +27,32 @@ describe('DirectorBridge workstation orchestration', () => {
     })
   })
 
+  it('marks solo Codex workstation done when the turn ends', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'patch-1',
+      name: 'apply_patch',
+      input: { patch: '*** Update File: src/bridge/DirectorBridge.ts\n' },
+    })
+
+    const assignment = emitted.find((e): e is Extract<GameEvent, { type: 'workstation_assign' }> => e.type === 'workstation_assign' && e.npcId === 'steward')
+    const stationId = assignment!.stationId
+
+    bridge.processAgentEvent({ type: 'turn_end' })
+
+    expect(emitted).toContainEqual({
+      type: 'npc_work_done',
+      npcId: 'steward',
+      status: 'completed',
+      stationId,
+      isTempWorker: false,
+    })
+  })
+
   it('shows the real file name on desk screens for raw Codex apply_patch arguments', () => {
     const bridge = new DirectorBridge()
     const emitted: GameEvent[] = []
@@ -369,7 +395,7 @@ describe('DirectorBridge workstation orchestration', () => {
     })
   })
 
-  it('does not mark subagents done before they have entered working state', () => {
+  it('defers turn-end completion until subagents finish entering the office', () => {
     const bridge = new DirectorBridge()
     const emitted: GameEvent[] = []
     bridge.onEmit(events => emitted.push(...events))
@@ -394,8 +420,21 @@ describe('DirectorBridge workstation orchestration', () => {
 
     bridge.processAgentEvent({ type: 'turn_end' })
 
+    const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
+    const stationId = goOffice!.agents[0].stationId!
+
     expect(emitted.some((e) => e.type === 'workflow_go_office')).toBe(true)
     expect(emitted.some((e) => e.type === 'npc_work_done')).toBe(false)
+
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
+
+    expect(emitted).toContainEqual({
+      type: 'npc_work_done',
+      npcId: 'citizen_1',
+      status: 'completed',
+      stationId,
+      isTempWorker: false,
+    })
   })
 
   it('does not mark subagents done when the summoning collection turn ends', () => {

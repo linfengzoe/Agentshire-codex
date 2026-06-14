@@ -80,6 +80,8 @@ export class DirectorBridge {
   private workflowSummonEmitted = false
   private lastProjectPhase: CodexProjectPhase | null = null
   private debugStoryActive = false
+  private pendingSessionEndAfterOfficeArrival = false
+  private pendingSoloWorkstationRelease = false
   private npcCharacterAssignments = new Map<string, string>([
     ['user', getCharacterKeyForNpc('user')],
     ['steward', getCharacterKeyForNpc('steward')],
@@ -251,6 +253,9 @@ export class DirectorBridge {
         if (npcId) {
           this.tracker.removeMappingByNpcId(npcId)
         }
+        if (npcId === this.stewardName) {
+          this.pendingSoloWorkstationRelease = false
+        }
         return null
       }
       case 'workflow_phase_complete': {
@@ -279,6 +284,9 @@ export class DirectorBridge {
             { type: 'mode_change', mode: 'work', workSubState: 'working' },
             { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
           ])
+          if (this.pendingSessionEndAfterOfficeArrival) {
+            this.completeActiveAgentsForSessionEnd()
+          }
         } else if (completedPhase === 'publishing' && this.phase === 'publishing') {
           this.phase = 'returning'
           this.emit([{ type: 'mode_change', mode: 'work', workSubState: 'returning' }])
@@ -291,6 +299,7 @@ export class DirectorBridge {
         } else if (completedPhase === 'returning' && this.phase === 'returning') {
           this.phase = 'idle'
           this.activeToolCount = 0
+          this.pendingSoloWorkstationRelease = false
           this.emit([
             { type: 'mode_change', mode: 'life' },
             { type: 'npc_phase', npcId: this.stewardName, phase: 'idle' },
@@ -301,6 +310,7 @@ export class DirectorBridge {
           this.pendingProjectName = ''
           this.pendingProjectType = ''
           this.lastToolInputByNpc.clear()
+          this.pendingSessionEndAfterOfficeArrival = false
           if (this.citizens.pendingStewardRenameTimer) {
             clearTimeout(this.citizens.pendingStewardRenameTimer)
             this.citizens.pendingStewardRenameTimer = null
@@ -556,10 +566,15 @@ export class DirectorBridge {
           this.emitWorkflowSummon()
           return
         }
+        if (this.phase === 'assigning' || this.phase === 'going_to_office') {
+          this.pendingSessionEndAfterOfficeArrival = true
+          return
+        }
         if (this.phase === 'working' || this.phase === 'publishing' || this.phase === 'returning') {
           this.completeActiveAgentsForSessionEnd()
         }
         if (this.phase === 'idle' || this.phase === 'working') {
+          this.completeSoloStewardWorkstation()
           this.activeToolCount = 0
           this.emit([{ type: 'npc_phase', npcId: this.stewardName, phase: 'idle' }])
         }
@@ -620,6 +635,7 @@ export class DirectorBridge {
         if (sysEvent.subtype === 'done') {
           this.systemInitReceived = false
           this.completeActiveAgentsForSessionEnd()
+          this.completeSoloStewardWorkstation()
         }
         this.emit(this.translator.translate(event))
         return
@@ -1225,6 +1241,7 @@ export class DirectorBridge {
   }
 
   private completeActiveAgentsForSessionEnd(): void {
+    this.pendingSessionEndAfterOfficeArrival = false
     const completedEvents: GameEvent[] = []
     let changed = false
     for (const info of this.agents.values()) {
@@ -1260,6 +1277,24 @@ export class DirectorBridge {
     this.emit([
       ...completedEvents,
       { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
+    ])
+  }
+
+  private completeSoloStewardWorkstation(): void {
+    if (this.agents.size > 0) return
+    if (this.pendingSoloWorkstationRelease) return
+    const stationId = this.tracker.getStationForNpc(this.stewardName)
+    if (!stationId) return
+    this.pendingSoloWorkstationRelease = true
+    this.emit([
+      {
+        type: 'npc_work_done',
+        npcId: this.stewardName,
+        status: 'completed',
+        stationId,
+        isTempWorker: false,
+      } as GameEvent,
+      { type: 'progress', current: 0, total: 0, label: '0/0 完成' },
     ])
   }
 
