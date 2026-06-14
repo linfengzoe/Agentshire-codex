@@ -6,9 +6,16 @@ import type { ScreenState } from '../../data/GameProtocol'
 
 export interface Workstation {
   id: string
+  /**
+   * Legacy alias for the worker seat center. Prefer seatPosition in new code.
+   */
   position: THREE.Vector3
+  deskPosition: THREE.Vector3
+  seatPosition: THREE.Vector3
+  screenLookTarget: THREE.Vector3
   deskMesh: THREE.Mesh
   monitorMesh: THREE.Mesh
+  screenHitMesh: THREE.Mesh
   chairMesh: THREE.Mesh
   screenMaterial: THREE.MeshBasicMaterial
   screenRenderer: ScreenRenderer
@@ -191,6 +198,23 @@ export class OfficeBuilder {
       }
       this.add(monitorMesh)
 
+      const screenHitMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.15, 0.85, 0.35),
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        }),
+      )
+      screenHitMesh.position.set(x, 1.8, z - 0.3)
+      screenHitMesh.name = `workstation-screen-hit-${ids[i]}`
+      screenHitMesh.userData = {
+        ...screenHitMesh.userData,
+        interactive: 'workstation_screen',
+        workstationId: ids[i],
+      }
+      this.add(screenHitMesh)
+
       this.box(0.84, 0.54, 0.04, 0x222222, x, 1.8, z - 0.32)
 
       const chairModel = this.placeModel(assets, 'chair_A', x, 0, z + 1)
@@ -213,11 +237,19 @@ export class OfficeBuilder {
         this.box(0.5, 0.5, 0.06, 0x333333, x, 0.75, z + 1.28)
       }
 
+      const deskPosition = new THREE.Vector3(x, 0, z)
+      const seatPosition = new THREE.Vector3(x, 0, z + 1)
+      const screenLookTarget = new THREE.Vector3(x, 0, z - 0.3)
+
       this.workstations.push({
         id: ids[i],
-        position: new THREE.Vector3(x, 0, z + 1),
+        position: seatPosition,
+        deskPosition,
+        seatPosition,
+        screenLookTarget,
         deskMesh,
         monitorMesh,
+        screenHitMesh,
         chairMesh,
         screenMaterial,
         screenRenderer: sr,
@@ -302,10 +334,10 @@ export class OfficeBuilder {
   }
 
   getScreenHit(raycaster: THREE.Raycaster): Workstation | null {
-    const hits = raycaster.intersectObjects(this.workstations.map(w => w.monitorMesh), false)
+    const hits = raycaster.intersectObjects(this.workstations.map(w => w.screenHitMesh ?? w.monitorMesh), false)
     const hit = hits[0]?.object
     if (!hit) return null
-    return this.workstations.find(w => w.monitorMesh === hit) ?? null
+    return this.workstations.find(w => (w.screenHitMesh ?? w.monitorMesh) === hit || w.monitorMesh === hit) ?? null
   }
 
   getScreenCanvas(id: string): HTMLCanvasElement | OffscreenCanvas | null {

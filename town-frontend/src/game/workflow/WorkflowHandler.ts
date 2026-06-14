@@ -51,6 +51,13 @@ export interface WorkflowHandlerDeps {
 }
 
 export function officeWorkTargetForStation(ws: { position: { x: number; z: number } }): { x: number; z: number } {
+  const seatPosition = (ws as { seatPosition?: { x: number; z: number } }).seatPosition
+  if (seatPosition) {
+    return {
+      x: seatPosition.x,
+      z: seatPosition.z,
+    }
+  }
   return {
     x: ws.position.x,
     z: ws.position.z,
@@ -730,7 +737,8 @@ export class WorkflowHandler {
   private seatNpcAtWorkstation(npc: NPC, ws: { position: { x: number; z: number } }): { x: number; z: number } {
     const target = this.getOfficeWorkTarget(ws)
     npc.mesh.position.set(target.x, this.getStationY(npc), target.z)
-    npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+    const screenLookTarget = (ws as { screenLookTarget?: { x: number; z: number } }).screenLookTarget
+    npc.lookAtTarget(screenLookTarget ?? { x: ws.position.x, z: ws.position.z - 2 })
     npc.setWorkstationPose(true)
     return target
   }

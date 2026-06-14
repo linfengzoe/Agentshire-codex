@@ -1302,9 +1302,11 @@ __workflow 演出测试指令:
       const stationId = this.workflow.officeNpcStations.get(npcId)
       const ws = stationId ? this.officeBuilder.getWorkstation(stationId) : undefined
       if (ws) {
+        const seat = ws.seatPosition ?? ws.position
+        const screenLookTarget = ws.screenLookTarget ?? { x: ws.position.x, z: ws.position.z - 2 }
         npc.stopMoving()
-        npc.mesh.position.set(ws.position.x, 0, ws.position.z)
-        npc.lookAtTarget({ x: ws.position.x, z: ws.position.z - 2 })
+        npc.mesh.position.set(seat.x, 0, seat.z)
+        npc.lookAtTarget(screenLookTarget)
         npc.setWorkstationPose(true)
         npc.playAnim('typing')
       }
@@ -1506,9 +1508,6 @@ __workflow 演出测试指令:
     raycaster.ray.intersectPlane(plane, worldPos)
 
     if (worldPos) {
-      const interactionLock = this.isSceneInteractionLocked()
-      if (interactionLock.locked) return
-
       const curSceneType = this.sceneSwitcher.getSceneType()
 
       if (curSceneType === 'office') {
@@ -1517,7 +1516,19 @@ __workflow 演出测试指令:
           this.ui.showWorkstationScreen(screenHit.id, screenHit.screenRenderer.getCanvas())
           return
         }
+
+        const wbMesh = this.officeBuilder.whiteboardMesh
+        if (wbMesh) {
+          const intersects = raycaster.intersectObject(wbMesh)
+          if (intersects.length > 0) {
+            this.ui.showWhiteboard()
+            return
+          }
+        }
       }
+
+      const interactionLock = this.isSceneInteractionLocked()
+      if (interactionLock.locked) return
 
       const tapRadius = curSceneType === 'office' ? 1.0 : 1.2
       const npc = this.npcManager.findNearestNPC(worldPos, tapRadius)
@@ -1538,15 +1549,6 @@ __workflow 演出测试指令:
       }
 
       if (curSceneType === 'office') {
-        const wbMesh = this.officeBuilder.whiteboardMesh
-        if (wbMesh) {
-          const intersects = raycaster.intersectObject(wbMesh)
-          if (intersects.length > 0) {
-            this.ui.showWhiteboard()
-            return
-          }
-        }
-        
         const officeDoor = this.officeBuilder.doorPos
         if (worldPos.distanceTo(officeDoor) < 5) {
           this.walkToDoor('exit_office', officeDoor)
