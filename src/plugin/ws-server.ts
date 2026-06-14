@@ -120,17 +120,33 @@ function setWorkSnapshot(townSessionId: string, snapshot: WorkSnapshot | null): 
   workSnapshots.set(townSessionId, snapshot);
 }
 
+function hasActiveWorkAgents(snapshot: WorkSnapshot): boolean {
+  return snapshot.agents.some((agent) => agent.status === "pending" || agent.status === "working");
+}
+
+function setWorkSnapshotIfActive(townSessionId: string, snapshot: WorkSnapshot): void {
+  if (!hasActiveWorkAgents(snapshot)) {
+    setWorkSnapshot(townSessionId, null);
+    return;
+  }
+  setWorkSnapshot(townSessionId, snapshot);
+}
+
 function updateWorkSnapshot(townSessionId: string, event: AgentEvent): void {
   switch (event.type) {
     case "system":
       if (event.subtype === "init") {
         const existing = getWorkSnapshot(townSessionId);
-        if (!existing?.agents.some(a => a.status === "working")) {
+        if (!existing || !hasActiveWorkAgents(existing)) {
           setWorkSnapshot(townSessionId, null);
         }
       } else if (event.subtype === "done") {
         setWorkSnapshot(townSessionId, null);
       }
+      return;
+
+    case "turn_end":
+      setWorkSnapshot(townSessionId, null);
       return;
 
     case "sub_agent":
@@ -156,7 +172,7 @@ function updateWorkSnapshot(townSessionId: string, event: AgentEvent): void {
         const agent = snapshot.agents.find((item) => item.id === event.agentId);
         if (!agent) return;
         agent.status = normalizeDoneStatus(event.status);
-        setWorkSnapshot(townSessionId, snapshot);
+        setWorkSnapshotIfActive(townSessionId, snapshot);
       }
       return;
 

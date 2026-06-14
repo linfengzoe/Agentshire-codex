@@ -218,6 +218,7 @@ describe('DirectorBridge workstation orchestration', () => {
     })
     bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
     bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
 
     const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
     const stationId = goOffice!.agents[0].stationId!
@@ -309,6 +310,7 @@ describe('DirectorBridge workstation orchestration', () => {
     })
     bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
     bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
 
     const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
     const stationId = goOffice!.agents[0].stationId!
@@ -355,6 +357,7 @@ describe('DirectorBridge workstation orchestration', () => {
     const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
     const stationId = goOffice!.agents[0].stationId!
 
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
     bridge.processAgentEvent({ type: 'turn_end' })
 
     expect(emitted).toContainEqual({
@@ -364,5 +367,60 @@ describe('DirectorBridge workstation orchestration', () => {
       stationId,
       isTempWorker: false,
     })
+  })
+
+  it('does not mark subagents done before they have entered working state', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_1', name: '岩', specialty: '架构设计', avatarId: 'char-male-b' },
+      ],
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: '正在前往办公室',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
+
+    bridge.processAgentEvent({ type: 'turn_end' })
+
+    expect(emitted.some((e) => e.type === 'workflow_go_office')).toBe(true)
+    expect(emitted.some((e) => e.type === 'npc_work_done')).toBe(false)
+  })
+
+  it('does not mark subagents done when the summoning collection turn ends', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_1', name: '岩', specialty: '架构设计', avatarId: 'char-male-b' },
+      ],
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: '等待召唤动画',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processAgentEvent({ type: 'turn_end' })
+
+    expect(emitted.some((e) => e.type === 'workflow_summon')).toBe(true)
+    expect(emitted.some((e) => e.type === 'npc_work_done')).toBe(false)
   })
 })

@@ -551,11 +551,13 @@ export class DirectorBridge {
         this.activity.flushThinking(this.stewardName)
         for (const q of this.npcQueues.values()) q.flush()
         this.citizens.flushPendingCitizens()
-        this.completeActiveAgentsForSessionEnd()
         if (this.phase === 'summoning') {
           if (this.summonTimer) { clearTimeout(this.summonTimer); this.summonTimer = null }
           this.emitWorkflowSummon()
           return
+        }
+        if (this.phase === 'working' || this.phase === 'publishing' || this.phase === 'returning') {
+          this.completeActiveAgentsForSessionEnd()
         }
         if (this.phase === 'idle' || this.phase === 'working') {
           this.activeToolCount = 0

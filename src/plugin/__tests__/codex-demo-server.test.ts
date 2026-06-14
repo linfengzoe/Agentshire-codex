@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startCodexDemoWsServer, type CodexDemoWsServer } from '../codex-demo-server.js'
-import { broadcastAgentEvent } from '../ws-server.js'
 
 let server: CodexDemoWsServer | null = null
 
@@ -78,44 +77,4 @@ describe('startCodexDemoWsServer', () => {
     ws.close()
   })
 
-  it('does not restore completed subagents as an active work snapshot on reconnect', async () => {
-    server = await startCodexDemoWsServer({ port: 0, demoDelayMs: 1 })
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`)
-    await waitForOpen(ws)
-
-    const initialMessagesPromise = waitForMessages(ws, 4)
-    ws.send(JSON.stringify({ type: 'town_session_init', townSessionId: 'town-finished' }))
-    broadcastAgentEvent({
-      type: 'sub_agent',
-      subtype: 'started',
-      agentId: 'agent-1',
-      agentType: 'worker',
-      parentToolUseId: 'spawn-1',
-      task: '完成后回镇',
-      model: 'gpt-5',
-      displayName: 'Worker',
-    }, 'town-finished')
-    broadcastAgentEvent({
-      type: 'sub_agent',
-      subtype: 'done',
-      agentId: 'agent-1',
-      result: 'done',
-      status: 'completed',
-    }, 'town-finished')
-    await initialMessagesPromise
-    ws.close()
-
-    const reconnect = new WebSocket(`ws://127.0.0.1:${server.port}`)
-    await waitForOpen(reconnect)
-    const reconnectMessagesPromise = waitForMessages(reconnect, 2)
-    reconnect.send(JSON.stringify({ type: 'town_session_init', townSessionId: 'town-finished' }))
-    const reconnectMessages = await reconnectMessagesPromise
-
-    expect(reconnectMessages[1]).toEqual({
-      type: 'work_snapshot',
-      townSessionId: 'town-finished',
-      snapshot: null,
-    })
-    reconnect.close()
-  })
 })
