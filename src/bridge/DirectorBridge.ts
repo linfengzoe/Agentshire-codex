@@ -551,6 +551,7 @@ export class DirectorBridge {
         this.activity.flushThinking(this.stewardName)
         for (const q of this.npcQueues.values()) q.flush()
         this.citizens.flushPendingCitizens()
+        this.completeActiveAgentsForSessionEnd()
         if (this.phase === 'summoning') {
           if (this.summonTimer) { clearTimeout(this.summonTimer); this.summonTimer = null }
           this.emitWorkflowSummon()
@@ -616,6 +617,7 @@ export class DirectorBridge {
         }
         if (sysEvent.subtype === 'done') {
           this.systemInitReceived = false
+          this.completeActiveAgentsForSessionEnd()
         }
         this.emit(this.translator.translate(event))
         return
@@ -1218,6 +1220,45 @@ export class DirectorBridge {
       if (info.status !== 'completed' && info.status !== 'failed') return false
     }
     return true
+  }
+
+  private completeActiveAgentsForSessionEnd(): void {
+    const completedEvents: GameEvent[] = []
+    let changed = false
+    for (const info of this.agents.values()) {
+      if (info.status === 'completed' || info.status === 'failed') continue
+      info.status = 'completed'
+      changed = true
+      const station = this.tracker.getAllNpcStates().find(s => s.npcId === info.npcId)?.stationId
+      const isTempWorker = this.tempWorkerNpcIds.has(info.npcId)
+      completedEvents.push({
+        type: 'npc_work_done',
+        npcId: info.npcId,
+        status: 'completed',
+        stationId: station,
+        isTempWorker,
+      } as GameEvent)
+      if (isTempWorker) {
+        this.tempWorkerNpcIds.delete(info.npcId)
+      }
+      this.lastToolInputByNpc.delete(info.npcId)
+    }
+    if (!changed) return
+
+    for (const info of this.agents.values()) {
+      this.emitDashboardForEvent({
+        type: 'sub_agent',
+        subtype: 'done',
+        agentId: info.agentId,
+        status: info.status === 'failed' ? 'failed' : 'completed',
+      }, { npcId: info.npcId, displayName: info.displayName })
+    }
+    const doneCount = [...this.agents.values()].filter(a => a.status === 'completed' || a.status === 'failed').length
+    const totalCount = this.agents.size
+    this.emit([
+      ...completedEvents,
+      { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
+    ])
   }
 
   private handleProjectComplete(event: Extract<AgentEvent, { type: 'tool_result' }>): void {
