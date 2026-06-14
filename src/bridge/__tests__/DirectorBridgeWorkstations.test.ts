@@ -51,6 +51,12 @@ describe('DirectorBridge workstation orchestration', () => {
     const bridge = new DirectorBridge()
     const emitted: GameEvent[] = []
     bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_1', name: '岩', specialty: '架构设计', avatarId: 'char-male-b' },
+        { id: 'citizen_2', name: '橙子', specialty: '测试验证', avatarId: 'char-female-a' },
+      ],
+    })
 
     bridge.processAgentEvent({
       type: 'sub_agent',
@@ -78,10 +84,91 @@ describe('DirectorBridge workstation orchestration', () => {
 
     const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
     expect(goOffice?.agents).toEqual([
-      expect.objectContaining({ npcId: 'reviewer', stationId: expect.any(String) }),
-      expect.objectContaining({ npcId: 'verifier', stationId: expect.any(String) }),
+      expect.objectContaining({ npcId: 'citizen_1', stationId: expect.any(String) }),
+      expect.objectContaining({ npcId: 'citizen_2', stationId: expect.any(String) }),
     ])
     expect(goOffice?.agents[0].stationId).not.toBe(goOffice?.agents[1].stationId)
+  })
+
+  it('binds unknown subagents to idle configured citizens and shows task briefings', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_1', name: '岩', specialty: '架构设计', avatarId: 'char-male-b' },
+        { id: 'citizen_2', name: '橙子', specialty: '测试验证', avatarId: 'char-female-a' },
+      ],
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_reviewer',
+      agentType: 'reviewer',
+      parentToolUseId: 'spawn-1',
+      task: '审查工位屏幕绑定',
+      model: 'gpt-5',
+      displayName: 'Reviewer',
+    })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_verifier',
+      agentType: 'verifier',
+      parentToolUseId: 'spawn-2',
+      task: '运行回归测试',
+      model: 'gpt-5',
+      displayName: 'Verifier',
+    })
+
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'npc_spawn',
+      npcId: 'citizen_1',
+      name: '岩',
+      task: '审查工位屏幕绑定',
+      avatarId: 'char-male-b',
+    }))
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'npc_spawn',
+      npcId: 'citizen_2',
+      name: '橙子',
+      task: '运行回归测试',
+      avatarId: 'char-female-a',
+    }))
+    expect(emitted.some((e) => e.type === 'npc_spawn' && String(e.npcId).startsWith('temp_'))).toBe(false)
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'citizen_1',
+      text: '岩 接到任务：审查工位屏幕绑定',
+      isStreaming: false,
+    })
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'citizen_2',
+      text: '橙子 接到任务：运行回归测试',
+      isStreaming: false,
+    })
+
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
+    bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'progress',
+      agentId: 'agent_reviewer',
+      event: {
+        type: 'text',
+        content: '我正在检查绑定链路。',
+      },
+    })
+
+    expect(emitted).toContainEqual({
+      type: 'dialog_message',
+      npcId: 'citizen_1',
+      text: '我正在检查绑定链路。',
+      isStreaming: false,
+    })
   })
 
   it('uses the actual spawned town NPC id in project dashboard subagent rows', () => {

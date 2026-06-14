@@ -37,6 +37,7 @@ interface AgentInfo {
   agentId: string
   npcId: string
   displayName: string
+  citizenName?: string
   task: string
   status: 'pending' | 'working' | 'completed' | 'failed'
   avatarId?: string
@@ -189,6 +190,33 @@ export class DirectorBridge {
     return q
   }
 
+  private getConfiguredCitizen(npcId: string): any | undefined {
+    return this.townConfig?.citizens?.find((c: any) => c.id === npcId)
+  }
+
+  private findIdleConfiguredCitizenId(): string | null {
+    const citizens = Array.isArray(this.townConfig?.citizens) ? this.townConfig.citizens : []
+    for (const citizen of citizens) {
+      const npcId = typeof citizen?.id === 'string' ? citizen.id : ''
+      if (!npcId || npcId === 'steward' || npcId === 'user') continue
+      if (this.tracker.resolveAgentId(npcId)) continue
+      if ([...this.agents.values()].some(a => a.npcId === npcId && a.status !== 'completed' && a.status !== 'failed')) continue
+      return npcId
+    }
+    return null
+  }
+
+  private resolveCitizenForAgent(displayName: string, rawName: string): string | null {
+    let citizenNpcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName)
+    if (!citizenNpcId) {
+      citizenNpcId = this.citizens.fuzzyMatchCitizen(displayName) ?? this.citizens.fuzzyMatchCitizen(rawName)
+    }
+    if (citizenNpcId && this.tracker.resolveAgentId(citizenNpcId)) {
+      citizenNpcId = null
+    }
+    return citizenNpcId ?? this.findIdleConfiguredCitizenId()
+  }
+
   /** Handle a GameAction from the frontend (user message, abort, door click, move ack) */
   processWorldAction(action: any): { type: string; message?: string } | null {
     switch (action.type) {
@@ -336,15 +364,19 @@ export class DirectorBridge {
       const rawName = a.displayName ?? a.id.replace(/^agent_/, '')
       let displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
       const collaborationRole = inferCodexSubagentRole('', a.task ?? '', displayName)
-      let npcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName) ?? a.id.replace(/^agent_/, '')
+      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName)
+      let npcId = citizenNpcId ?? a.id.replace(/^agent_/, '')
       if (npcId === 'steward' || npcId === 'user') {
         npcId = `temp_${a.id.replace(/^agent_/, '').slice(0, 8)}_${Date.now().toString(36)}`
       }
 
-      const isTempWorker = !this.citizens.findCitizenNpcId(displayName) && !this.citizens.findCitizenNpcId(rawName)
+      const isTempWorker = !citizenNpcId
+      const configuredCitizen = citizenNpcId ? this.getConfiguredCitizen(citizenNpcId) : undefined
       if (isTempWorker) {
         this.tempWorkerNpcIds.add(npcId)
         displayName = decorateCodexSubagentName(displayName, collaborationRole)
+      } else {
+        displayName = configuredCitizen?.name ?? displayName
       }
 
       this.tracker.registerMapping(a.id, npcId)
@@ -353,6 +385,7 @@ export class DirectorBridge {
         agentId: a.id,
         npcId,
         displayName,
+        citizenName: configuredCitizen?.name,
         task: a.task,
         status: resolvedStatus as AgentInfo['status'],
         collaborationRole,
@@ -364,7 +397,7 @@ export class DirectorBridge {
       if (isTempWorker) {
         avatarId = this.pickRoleAvatar(collaborationRole)
       } else {
-        const configured = this.townConfig?.citizens?.find((c: any) => c.id === npcId)
+        const configured = this.getConfiguredCitizen(npcId)
         avatarId = configured?.avatarId ?? getCharacterKeyForNpc(npcId)
       }
       this.npcCharacterAssignments.set(npcId, avatarId)
@@ -898,11 +931,8 @@ export class DirectorBridge {
       const extra = event as Extract<AgentEvent, { type: 'sub_agent'; subtype: 'started' }> & { avatarId?: string; metadata?: { avatarId?: string } }
       let avatarId = extra.avatarId ?? extra.metadata?.avatarId ?? undefined
 
-      let citizenNpcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName)
-
-      if (!citizenNpcId) {
-        citizenNpcId = this.citizens.fuzzyMatchCitizen(displayName) ?? this.citizens.fuzzyMatchCitizen(rawName)
-      }
+      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName)
+      const configuredCitizen = citizenNpcId ? this.getConfiguredCitizen(citizenNpcId) : undefined
 
       if (!citizenNpcId && this.citizens.looksLikeIdFragment(displayName)) {
         displayName = `临时工 ${this.agents.size + 1}`
@@ -922,10 +952,13 @@ export class DirectorBridge {
         }
         displayName = decorateCodexSubagentName(displayName, collaborationRole)
         avatarId = avatarId ?? this.pickRoleAvatar(collaborationRole)
+      } else {
+        displayName = configuredCitizen?.name ?? displayName
+        avatarId = avatarId ?? configuredCitizen?.avatarId
       }
 
       this.tracker.registerMapping(agentId, npcId)
-      const info: AgentInfo = { agentId, npcId, displayName, task, status: 'pending', avatarId, collaborationRole }
+      const info: AgentInfo = { agentId, npcId, displayName, citizenName: configuredCitizen?.name, task, status: 'pending', avatarId, collaborationRole }
       this.agents.set(agentId, info)
       this.agentOrder.push(agentId)
       this.emitDashboardForEvent(event, { npcId: info.npcId, displayName: info.displayName })
@@ -1156,6 +1189,7 @@ export class DirectorBridge {
     const spawnVec = spawn ? { x: spawn.x, y: 0, z: spawn.z } : undefined
     this.emit([
       { type: 'npc_spawn', npcId: info.npcId, name: info.displayName, role: profile.npcRole, category: 'citizen', specialty: profile.role, task: info.task, avatarId: safeAvatarId, spawn: spawnVec, arrivalFanfare: true },
+      { type: 'dialog_message', npcId: info.npcId, text: `${info.displayName} 接到任务：${info.task || '协助本轮工作'}`, isStreaming: false },
     ])
   }
 
