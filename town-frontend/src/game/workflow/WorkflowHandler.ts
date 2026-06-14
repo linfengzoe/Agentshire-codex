@@ -37,6 +37,7 @@ export interface WorkflowHandlerDeps {
   dataSource: IWorldDataSource
   officeScene: import('three').Scene
   townScene: import('three').Scene
+  getSceneType: () => SceneType
   getModeIndicator: () => ModeIndicator | undefined
   getBehavior: (id: string) => DailyBehavior | undefined
   getJournal: (id: string) => ActivityJournal | undefined
@@ -496,6 +497,7 @@ export class WorkflowHandler {
       await this.delay(500)
       this.deps.despawnNpc(npcId)
       this.releaseWorkstation(npcId, stationId)
+      this.returnObserversToTownWhenOfficeIsEmpty()
       return
     }
 
@@ -503,6 +505,7 @@ export class WorkflowHandler {
     npc.setGlow('none')
     npc.indicator.setState('idle')
     this.releaseWorkstation(npcId, stationId)
+    this.returnObserversToTownWhenOfficeIsEmpty()
 
     const phrase = WorkflowHandler.getDepartPhrase()
     bubbles.show(npc.mesh, phrase, 1500)
@@ -788,6 +791,14 @@ export class WorkflowHandler {
       type: 'workstation_released',
       npcId,
       stationId: resolvedStationId,
+    })
+  }
+
+  private returnObserversToTownWhenOfficeIsEmpty(): void {
+    if (this.officeNpcStations.size > 0) return
+    if (this.deps.getSceneType() !== 'office') return
+    this.deps.switchScene('town').catch((err) => {
+      console.warn('[WorkflowHandler] Failed to return observers to town:', err)
     })
   }
 

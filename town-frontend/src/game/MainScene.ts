@@ -362,6 +362,7 @@ export class MainScene implements GameScene {
       dataSource: this.dataSource,
       officeScene: this.officeScene,
       townScene: this.townScene,
+      getSceneType: () => this.sceneSwitcher.getSceneType(),
       getModeIndicator: () => this.modeIndicator,
       getBehavior: (id) => this.dailyScheduler.getDailyBehaviors().get(id),
       getJournal: (id) => this.dailyScheduler.getActivityJournals().get(id),

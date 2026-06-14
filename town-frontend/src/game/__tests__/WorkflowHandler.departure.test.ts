@@ -52,6 +52,7 @@ function makeDeps(npc: ReturnType<typeof makeNpc>) {
     },
     officeScene,
     townScene,
+    getSceneType: vi.fn(() => 'office'),
     getModeIndicator: vi.fn(() => undefined),
     getBehavior: vi.fn(() => undefined),
     getJournal: vi.fn(() => undefined),
@@ -87,6 +88,7 @@ describe('WorkflowHandler departure', () => {
     expect(npc.moveTo).toHaveBeenCalled()
     expect(npc.fadeOut).toHaveBeenCalled()
     expect(npc.mesh.parent).toBe(townScene)
+    expect(deps.switchScene).toHaveBeenCalledWith('town')
     expect(deps.startBehaviorForNpc).toHaveBeenCalledWith('citizen_1')
   })
 })
