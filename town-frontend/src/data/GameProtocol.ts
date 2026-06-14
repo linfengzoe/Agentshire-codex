@@ -32,7 +32,7 @@ export type ScreenState =
   | { mode: 'thinking' }
   | { mode: 'coding'; fileName: string }
   | { mode: 'done' }
-  | { mode: 'error' }
+  | { mode: 'error'; label?: string; detail?: string }
 
 // ── Codex project dashboard ──
 

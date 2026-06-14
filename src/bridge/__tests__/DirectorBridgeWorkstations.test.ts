@@ -167,7 +167,36 @@ describe('DirectorBridge workstation orchestration', () => {
     expect(emitted).toContainEqual({
       type: 'workstation_screen',
       stationId,
-      state: { mode: 'error' },
+      state: { mode: 'error', label: 'command failed', detail: 'npm test' },
+    })
+  })
+
+  it('shows browser failure details on the assigned workstation screen', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+
+    bridge.processAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'browser-1',
+      name: 'browser_snapshot',
+      input: {},
+    })
+
+    const assignment = emitted.find((e): e is Extract<GameEvent, { type: 'workstation_assign' }> => e.type === 'workstation_assign' && e.npcId === 'steward')
+
+    bridge.processAgentEvent({
+      type: 'tool_result',
+      toolUseId: 'browser-1',
+      name: 'browser_snapshot',
+      output: 'Error: target page has been closed',
+      meta: { exitCode: 1 },
+    })
+
+    expect(emitted).toContainEqual({
+      type: 'workstation_screen',
+      stationId: assignment!.stationId,
+      state: { mode: 'error', label: 'browser error', detail: 'browser_snapshot' },
     })
   })
 })

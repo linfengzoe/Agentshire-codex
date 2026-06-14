@@ -228,8 +228,32 @@ export class ScreenRenderer {
     ctx.fillStyle = '#ff4444'
     ctx.font = '12px monospace'
     ctx.textAlign = 'center'
-    ctx.fillText('ERROR', W / 2, H / 2 + 35)
+    ctx.fillText('ERROR', W / 2, H / 2 + 28)
+
+    const err = this.state as { mode: 'error'; label?: string; detail?: string }
+    const label = err.label || 'debug'
+    const detail = err.detail || ''
+    ctx.fillStyle = '#ff9b9b'
+    ctx.font = '10px monospace'
+    ctx.fillText(label.slice(0, 28), W / 2, H / 2 + 44)
+
+    if (detail) {
+      ctx.fillStyle = '#ffd1d1'
+      ctx.font = '9px monospace'
+      const lines = this.wrapText(detail, 34).slice(0, 2)
+      lines.forEach((line, i) => ctx.fillText(line, W / 2, H / 2 + 59 + i * 11))
+    }
     ctx.textAlign = 'left'
+  }
+
+  private wrapText(text: string, maxChars: number): string[] {
+    const clean = text.replace(/\s+/g, ' ').trim()
+    if (!clean) return []
+    const lines: string[] = []
+    for (let i = 0; i < clean.length; i += maxChars) {
+      lines.push(clean.slice(i, i + maxChars))
+    }
+    return lines
   }
 
   dispose(): void {

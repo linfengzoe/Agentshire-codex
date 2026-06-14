@@ -674,7 +674,26 @@ export class DirectorBridge {
     const stationId = this.tracker.getStationForNpc(npcId)
     if (!stationId) return
     if (!isDebugRelevantTool(toolName, input) && !['apply_patch', 'write', 'write_file', 'edit', 'edit_file'].includes(toolName)) return
-    this.emit([{ type: 'workstation_screen', stationId, state: success ? { mode: 'done' } : { mode: 'error' } }])
+    this.emit([{
+      type: 'workstation_screen',
+      stationId,
+      state: success ? { mode: 'done' } : this.screenErrorStateForTool(toolName, input),
+    }])
+  }
+
+  private screenErrorStateForTool(toolName: string, input: Record<string, unknown>): ScreenState {
+    const command = String(input.command ?? '').trim()
+    if (command) {
+      return { mode: 'error', label: 'command failed', detail: command.slice(0, 96) }
+    }
+    if (toolName === 'browser' || toolName.startsWith('browser_')) {
+      return { mode: 'error', label: 'browser error', detail: toolName }
+    }
+    const filePath = extractFilePath(toolName, input)
+    if (filePath) {
+      return { mode: 'error', label: 'file operation failed', detail: filePath.slice(0, 96) }
+    }
+    return { mode: 'error', label: 'tool failed', detail: toolName }
   }
 
   private emitWaitAgentSyncStory(): void {
