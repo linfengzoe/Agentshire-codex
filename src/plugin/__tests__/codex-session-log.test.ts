@@ -294,6 +294,59 @@ describe('CodexSessionLogMapper', () => {
     ])
   })
 
+  it('deduplicates repeated agent ids in batch spawn_agent outputs', () => {
+    const mapper = new CodexSessionLogMapper()
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-duplicate',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"并行实现任务"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-duplicate',
+        output: JSON.stringify({
+          agents: [
+            { agent_id: 'agent-duplicate', nickname: 'Ada' },
+            { agent: { id: 'agent-duplicate', displayName: 'Duplicate Ada' } },
+          ],
+        }),
+      },
+    })).toEqual([
+      expect.objectContaining({
+        type: 'subagent.started',
+        agentId: 'agent-duplicate',
+        displayName: 'Ada',
+      }),
+    ])
+
+    mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        call_id: 'spawn-duplicate-again',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","message":"重复报告"}',
+      },
+    })
+
+    expect(mapper.mapRecord({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'spawn-duplicate-again',
+        output: JSON.stringify({ agent_id: 'agent-duplicate', nickname: 'Ada Again' }),
+      },
+    })).toEqual([])
+  })
+
   it('promotes completed wait_agent statuses to subagent.completed events', () => {
     const mapper = new CodexSessionLogMapper()
     mapper.mapRecord({

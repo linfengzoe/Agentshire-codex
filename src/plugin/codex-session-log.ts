@@ -313,10 +313,12 @@ export class CodexSessionLogMapper {
     const agentType = asText(input.agent_type ?? input.agentType) || "worker";
     const task = asText(input.message ?? input.task) || "Codex sub-agent task";
     const events: CodexAdapterEvent[] = [];
+    const seenAgentIds = new Set<string>();
 
     for (const agentRecord of agentRecords) {
       const agentId = extractNestedAgentId(agentRecord);
-      if (!agentId) continue;
+      if (!agentId || seenAgentIds.has(agentId) || this.subagents.has(agentId)) continue;
+      seenAgentIds.add(agentId);
       const agent = asRecord(agentRecord.agent);
       const displayName = asText(
         agentRecord.nickname
