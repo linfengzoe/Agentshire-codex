@@ -58,6 +58,60 @@ describe('ProjectDashboardTracker', () => {
     })
   })
 
+  it('separates writing test files from running verification commands', () => {
+    const tracker = new ProjectDashboardTracker()
+
+    tracker.applyAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'write-test-1',
+      name: 'apply_patch',
+      input: { patch: '*** Add File: src/bridge/__tests__/NewFeature.test.ts\n' },
+    })
+
+    expect(tracker.snapshot()).toMatchObject({
+      phase: 'writing_tests',
+      currentTask: '写测试',
+      testStatus: 'idle',
+      recentFiles: ['src/bridge/__tests__/NewFeature.test.ts'],
+    })
+
+    tracker.applyAgentEvent({
+      type: 'tool_result',
+      toolUseId: 'write-test-1',
+      name: 'apply_patch',
+      output: 'Done',
+    })
+
+    expect(tracker.snapshot().completedSteps).toContain('写测试')
+
+    tracker.applyAgentEvent({
+      type: 'tool_use',
+      toolUseId: 'verify-1',
+      name: 'shell_command',
+      input: { command: 'npm test' },
+    })
+
+    expect(tracker.snapshot()).toMatchObject({
+      phase: 'verifying',
+      currentTask: '跑验证',
+      testStatus: 'running',
+    })
+
+    tracker.applyAgentEvent({
+      type: 'tool_result',
+      toolUseId: 'verify-1',
+      name: 'shell_command',
+      output: 'Test Files 1 passed',
+      meta: { exitCode: 0 },
+    })
+
+    expect(tracker.snapshot()).toMatchObject({
+      phase: 'verifying',
+      testStatus: 'passed',
+    })
+    expect(tracker.snapshot().completedSteps).toContain('跑验证')
+  })
+
   it('tracks subagent roles and testing failure recovery state', () => {
     const tracker = new ProjectDashboardTracker()
     const started: AgentEvent = {
@@ -95,7 +149,7 @@ describe('ProjectDashboardTracker', () => {
     })
 
     expect(tracker.snapshot()).toMatchObject({
-      phase: 'writing_tests',
+      phase: 'verifying',
       testStatus: 'running',
     })
 

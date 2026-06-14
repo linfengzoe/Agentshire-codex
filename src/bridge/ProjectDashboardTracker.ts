@@ -9,6 +9,10 @@ import type {
 import type { AgentEvent } from '../contracts/events.js'
 import { inferCodexSubagentRole } from './CodexSubagentRoles.js'
 
+interface DashboardRunningTool extends CodexProjectToolStatus {
+  phase: CodexProjectPhase
+}
+
 const MAX_COMPLETED_STEPS = 8
 const MAX_RECENT_FILES = 6
 
@@ -32,7 +36,7 @@ export class ProjectDashboardTracker {
     recentFiles: [],
   }
   private subagents = new Map<string, CodexProjectSubagent>()
-  private runningTools = new Map<string, CodexProjectToolStatus>()
+  private runningTools = new Map<string, DashboardRunningTool>()
 
   applyAgentEvent(event: AgentEvent, context?: { npcId?: string; displayName?: string }): GameEvent[] {
     this.apply(event, context)
@@ -57,20 +61,20 @@ export class ProjectDashboardTracker {
     }
 
     if (event.type === 'tool_use') {
-      const phase = inferPhaseFromToolUse(event.name, event.input)
+      const file = extractRecentFile(event.name, event.input)
+      const phase = inferPhaseFromToolUse(event.name, event.input, file)
       this.setPhase(phase)
-      this.state.currentTask = taskLabelForTool(event.name, event.input)
+      this.state.currentTask = taskLabelForTool(event.name, event.input, phase)
       const tool: CodexProjectToolStatus = {
         id: event.toolUseId,
         name: event.name,
         label: this.state.currentTask,
         npcId: context?.npcId,
       }
-      this.runningTools.set(event.toolUseId, tool)
+      this.runningTools.set(event.toolUseId, { ...tool, phase })
       this.state.runningTools = [...this.runningTools.values()]
-      const file = extractRecentFile(event.name, event.input)
       if (file) this.rememberFile(file)
-      if (phase === 'writing_tests' || phase === 'verifying') this.state.testStatus = 'running'
+      if (phase === 'verifying') this.state.testStatus = 'running'
       return
     }
 
@@ -79,7 +83,7 @@ export class ProjectDashboardTracker {
       this.runningTools.delete(event.toolUseId)
       this.state.runningTools = [...this.runningTools.values()]
       const success = isSuccessfulToolResult(event)
-      const phase = finished ? inferPhaseFromToolNameAndLabel(finished.name, finished.label) : inferPhaseFromToolNameAndLabel(event.name, '')
+      const phase = finished?.phase ?? inferPhaseFromToolNameAndLabel(event.name, '')
       if (!success) {
         this.setPhase('debugging')
         this.state.lastError = firstMeaningfulLine(event.output) || event.name
@@ -150,20 +154,21 @@ export class ProjectDashboardTracker {
   }
 }
 
-function inferPhaseFromToolUse(name: string, input: Record<string, unknown>): CodexProjectPhase {
+function inferPhaseFromToolUse(name: string, input: Record<string, unknown>, filePath?: string | null): CodexProjectPhase {
+  if (isTestFilePath(filePath)) return 'writing_tests'
   if (name === 'apply_patch' || /write|edit/i.test(name)) return 'editing'
   if (name.startsWith('browser_') || name === 'browser') return 'verifying'
   if (name === 'wait_agent') return 'verifying'
   if (name === 'spawn_agent') return 'reading'
   const command = String(input.command ?? '')
-  if (/\b(vitest|test|spec)\b/i.test(command)) return 'writing_tests'
+  if (/\b(vitest|npm\s+test|pnpm\s+test|yarn\s+test|test|spec)\b/i.test(command)) return 'verifying'
   if (/\b(tsc|build|lint|typecheck|preview)\b/i.test(command)) return 'verifying'
   if (/\b(rg|grep|Get-Content|cat|ls|dir|Select-String|find)\b/i.test(command)) return 'reading'
   return 'reading'
 }
 
 function inferPhaseFromToolNameAndLabel(name: string, label: string): CodexProjectPhase {
-  if (/\btest|测试|vitest|spec\b/i.test(label)) return 'writing_tests'
+  if (/\b跑验证|运行测试|test|测试|vitest|spec|验证\b/i.test(label)) return 'verifying'
   if (/\b构建|验证|build|tsc|lint|browser/i.test(label) || name.startsWith('browser_')) return 'verifying'
   if (name === 'apply_patch' || /edit|write/i.test(name) || /编辑|代码/.test(label)) return 'editing'
   return 'reading'
@@ -173,16 +178,21 @@ function isTestOrVerifyTool(name: string, label: string): boolean {
   return /\btest|测试|vitest|spec|build|tsc|lint|browser|验证|构建/i.test(`${name} ${label}`)
 }
 
-function taskLabelForTool(name: string, input: Record<string, unknown>): string {
+function taskLabelForTool(name: string, input: Record<string, unknown>, phase: CodexProjectPhase): string {
+  if (phase === 'writing_tests') return '写测试'
   if (name === 'apply_patch') return '编辑代码'
   if (name === 'wait_agent') return '同步子代理'
   if (name === 'spawn_agent') return '召唤子代理'
   if (name.startsWith('browser_') || name === 'browser') return '浏览器检查'
   const command = String(input.command ?? '')
-  if (/\b(vitest|test|spec)\b/i.test(command)) return '运行测试'
+  if (/\b(vitest|npm\s+test|pnpm\s+test|yarn\s+test|test|spec)\b/i.test(command)) return '跑验证'
   if (/\b(tsc|build|lint|typecheck)\b/i.test(command)) return '构建项目'
   if (/\b(rg|grep|Get-Content|cat|ls|dir|Select-String|find)\b/i.test(command)) return '阅读项目'
   return `使用工具：${name}`
+}
+
+function isTestFilePath(filePath: string | null | undefined): boolean {
+  return typeof filePath === 'string' && /(?:^|[\\/])__tests__[\\/]|(?:\.test|\.spec)\.[A-Za-z0-9]+$/i.test(filePath)
 }
 
 function extractRecentFile(name: string, input: Record<string, unknown>): string | null {
