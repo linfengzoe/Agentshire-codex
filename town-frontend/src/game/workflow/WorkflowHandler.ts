@@ -499,21 +499,6 @@ export class WorkflowHandler {
       return
     }
 
-    const TOTAL_STATIONS = 10
-    const MIN_EMPTY_TO_STAY = 3
-    const emptyStations = TOTAL_STATIONS - this.officeNpcStations.size
-    const isFirstBatch = this.firstBatchNpcIds.has(npcId)
-    const shouldLeave = isFirstBatch || emptyStations < MIN_EMPTY_TO_STAY
-
-    if (!shouldLeave) {
-      npc.setStatusEmoji('success')
-      npc.setGlow('green')
-      npc.indicator.setState('done')
-      npc.transitionTo('idle')
-      if (resolvedStationId) officeBuilder.setScreenState(resolvedStationId, { mode: 'done' })
-      return
-    }
-
     npc.setStatusEmoji(null)
     npc.setGlow('none')
     npc.indicator.setState('idle')
