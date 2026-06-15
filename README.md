@@ -2,11 +2,11 @@
 
 English | [中文](README.zh-CN.md)
 
-> **Agentshire — Let your OpenClaw/QClaw agents live in a game town you built yourself， not a ChatBox.**
+> **Agentshire — Let your OpenClaw/QClaw/Codex agents live in a game town you built yourself, not a ChatBox.**
 
-Agentshire is an OpenClaw/QClaw plugin that turns AI agents into living NPCs inside a 3D town you can watch, chat with, and shape yourself. It combines a living simulation layer with UGC tools: weather, day/night cycles, social NPCs, a map editor, and a character workshop.
+Agentshire is a 3D agent town for OpenClaw, QClaw, and Codex that turns AI agents into living NPCs you can watch, chat with, and shape yourself. It combines a living simulation layer with UGC tools: weather, day/night cycles, social NPCs, a map editor, and a character workshop.
 
-**Works with both OpenClaw CLI and [QClaw](https://qclaw.cn) desktop app.**
+**Works with OpenClaw CLI, the [QClaw](https://qclaw.cn) desktop app, and [Codex session visualization](#codex-session-visualizer).**
 
 **[Vision](VISION.md)** | **[Roadmap](ROADMAP.md)**
 
@@ -189,6 +189,26 @@ Visit `http://localhost:55210/citizen-editor.html` to create and configure your 
 ### Town Editor
 
 Visit `http://localhost:55210/editor.html` to open the visual map editor.
+
+### Codex Session Visualizer
+
+Agentshire can mirror the current Codex session into the town: the main Codex agent and sub-agents become NPCs, while reasoning, tool calls, file edits, tests, and delivery phases are mapped to bubbles, workstation screens, and the project dashboard.
+
+```bash
+node scripts/codex-session-visualizer.mjs
+```
+
+Then open:
+
+```text
+http://127.0.0.1:55210/?ws=ws://127.0.0.1:55211
+```
+
+By default it reads the latest `~/.codex/sessions/**/*.jsonl` log. To pin a specific session log:
+
+```bash
+CODEX_SESSION_LOG=/path/to/session.jsonl node scripts/codex-session-visualizer.mjs
+```
 
 
 ### Configuration (Optional)

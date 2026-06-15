@@ -15,6 +15,7 @@ export interface DialogManagerDeps {
 export class DialogManager {
   private streamBuffers = new Map<string, string>()
   private streamBubbleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private recentActivityBubbles = new Map<string, { text: string; until: number }>()
   private workLogs = new Map<string, Array<{ type: 'activity' | 'thinking'; icon: string; message: string; time?: string; status?: boolean | null }>>()
 
   private bubbles: ChatBubbleSystem
@@ -53,7 +54,7 @@ export class DialogManager {
       if (hadStream) {
         this.flushStream(npcId)
       } else {
-        if (npc) this.bubbles.show(npc.mesh, text, getBubbleDurationMs(text, 'npc'))
+        if (npc && !this.wasRecentlyShownFromActivity(npcId, text)) this.bubbles.show(npc.mesh, text, getBubbleDurationMs(text, 'npc'))
         const displayName = npc?.label ?? npcId
         this.ui.addChatMessage({ from: displayName, text, timestamp: Date.now() })
       }
@@ -100,6 +101,30 @@ export class DialogManager {
     }
     this.workLogs.set(event.npcId, logs)
     this.ui.appendActivity(event.npcId, { type: entryType, icon: event.icon, message: event.message, time: event.time, status })
+    this.showBubbleForSpeakableActivity(event)
+  }
+
+  private showBubbleForSpeakableActivity(event: { npcId: string; icon: string; message: string }): void {
+    if (!event.message) return
+    if (event.icon !== 'message-circle' && event.icon !== 'alert-circle') return
+    const npc = this.npcManager.get(event.npcId)
+    if (!npc) return
+
+    this.bubbles.show(npc.mesh, event.message, getBubbleDurationMs(event.message, 'npc'))
+    this.recentActivityBubbles.set(event.npcId, {
+      text: event.message,
+      until: Date.now() + 1000,
+    })
+  }
+
+  private wasRecentlyShownFromActivity(npcId: string, text: string): boolean {
+    const recent = this.recentActivityBubbles.get(npcId)
+    if (!recent) return false
+    if (recent.until <= Date.now()) {
+      this.recentActivityBubbles.delete(npcId)
+      return false
+    }
+    return recent.text === text
   }
 
   onNpcActivityStatus(npcId: string, success: boolean): void {

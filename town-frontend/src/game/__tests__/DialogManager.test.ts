@@ -128,6 +128,32 @@ describe('DialogManager', () => {
     expect(logs.get('npc2')![0]).toMatchObject({ type: 'thinking', icon: 'brain', message: 'Thinking...' })
   })
 
+  it('shows speech-like activity as a bubble', () => {
+    dm.onNpcActivity({ npcId: 'npc1', icon: 'message-circle', message: 'I found the bug.' })
+
+    expect(deps.bubbles.show).toHaveBeenCalledWith(
+      expect.anything(),
+      'I found the bug.',
+      1200,
+    )
+  })
+
+  it('does not show tool activity as a bubble', () => {
+    dm.onNpcActivity({ npcId: 'npc1', icon: 'terminal', message: '运行测试' })
+
+    expect(deps.bubbles.show).not.toHaveBeenCalled()
+  })
+
+  it('does not immediately duplicate a speech-like activity bubble when matching dialog arrives', () => {
+    dm.onNpcActivity({ npcId: 'npc1', icon: 'message-circle', message: 'Done.' })
+    dm.onDialogMessage('npc1', 'Done.', false)
+
+    expect(deps.bubbles.show).toHaveBeenCalledTimes(1)
+    expect(deps.ui.addChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'NPC_npc1', text: 'Done.' }),
+    )
+  })
+
   it('caps work logs at 200 entries per NPC', () => {
     for (let i = 0; i < 210; i++) {
       dm.onNpcActivity({ npcId: 'npc1', icon: 'wrench', message: `entry-${i}` })

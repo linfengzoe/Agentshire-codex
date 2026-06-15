@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-> **Agentshire — 让你的 OpenClaw/QClaw Agent 住进你亲手搭建的3D游戏小镇，而不是ChatBox。**
+> **Agentshire — 让你的 OpenClaw/QClaw/Codex Agent 住进你亲手搭建的3D游戏小镇，而不是ChatBox。**
 
-Agentshire 是一个支持OpenClaw/QClaw的插件，让 AI Agent 变成 3D 游戏小镇里活生生的 NPC——你可以观看、对话、也可以亲手改造这个世界。它融合了生活模拟与 UGC 工具：天气系统、昼夜循环、NPC 自主社交、地图编辑器、角色工坊。
+Agentshire 是一个支持 OpenClaw/QClaw/Codex 的 3D Agent 小镇，让 AI Agent 变成游戏世界里活生生的 NPC——你可以观看、对话、也可以亲手改造这个世界。它融合了生活模拟与 UGC 工具：天气系统、昼夜循环、NPC 自主社交、地图编辑器、角色工坊。
 
-**同时支持 OpenClaw CLI 和 [QClaw](https://qclaw.cn) 桌面端。**
+**同时支持 OpenClaw CLI、[QClaw](https://qclaw.cn) 桌面端，以及 [Codex 会话可视化](#codex-会话可视化)。**
 
 **[查看完整愿景](VISION.md)** | **[查看路线图](ROADMAP.md)**
 
@@ -188,6 +188,26 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 ### 小镇编辑器
 
 访问 `http://localhost:55210/editor.html` 打开小镇编辑器，可视化编辑地图布局。
+
+### Codex 会话可视化
+
+Agentshire 也可以把当前 Codex 会话镜像到小镇里：主 Codex 和子 Agent 会显示成 NPC，思考、工具调用、文件修改、测试与交付阶段会映射成气泡、工位屏幕和项目看板。
+
+```bash
+node scripts/codex-session-visualizer.mjs
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:55210/?ws=ws://127.0.0.1:55211
+```
+
+默认会读取最新的 `~/.codex/sessions/**/*.jsonl`。如需指定会话日志：
+
+```bash
+CODEX_SESSION_LOG=/path/to/session.jsonl node scripts/codex-session-visualizer.mjs
+```
 
 ### 配置（可选）
 
