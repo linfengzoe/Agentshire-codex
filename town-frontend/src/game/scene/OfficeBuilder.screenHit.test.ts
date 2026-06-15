@@ -16,7 +16,10 @@ describe('OfficeBuilder workstation screen interaction', () => {
       id: 'B',
       position: new THREE.Vector3(10, 0, 7),
       monitorMesh,
-      screenRenderer: { getCanvas: () => ({ width: 256, height: 160 }) },
+      screenRenderer: {
+        getCanvas: () => ({ width: 256, height: 160 }),
+        getState: () => ({ mode: 'waiting', label: 'test', meta: { task: '运行回归测试' } }),
+      },
     } as unknown as Workstation
     builder.workstations = [workstation]
 
@@ -25,6 +28,7 @@ describe('OfficeBuilder workstation screen interaction', () => {
 
     expect(builder.getScreenHit(raycaster)?.id).toBe('B')
     expect(builder.getScreenCanvas('B')).toEqual({ width: 256, height: 160 })
+    expect(builder.getScreenState('B')).toEqual({ mode: 'waiting', label: 'test', meta: { task: '运行回归测试' } })
   })
 
   it('uses the larger invisible screen hit box when present', () => {

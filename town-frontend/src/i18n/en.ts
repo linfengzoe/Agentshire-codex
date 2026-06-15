@@ -116,6 +116,28 @@ const en: Record<string, string> = {
 
   // ── Screen ──
   'screen.analyzing': 'Analyzing',
+  'screen.panel_title': 'Workstation Screen',
+  'screen.station': 'Station',
+  'screen.assignee': 'Assignee',
+  'screen.role': 'Role',
+  'screen.task': 'Task',
+  'screen.status': 'Status',
+  'screen.file': 'File',
+  'screen.tool': 'Tool',
+  'screen.activity': 'Activity',
+  'screen.empty': 'None',
+  'screen.close': 'Close workstation screen',
+  'screen.status.unknown': 'Unknown',
+  'screen.status.off': 'Idle',
+  'screen.status.waiting': 'Waiting',
+  'screen.status.thinking': 'Thinking',
+  'screen.status.coding': 'Working',
+  'screen.status.done': 'Done',
+  'screen.status.error': 'Error',
+  'screen.status.pending': 'Pending',
+  'screen.status.working': 'Working',
+  'screen.status.completed': 'Completed',
+  'screen.status.failed': 'Failed',
 
   // ── Skill panel ──
   'skill.equipped': 'Installed',

@@ -344,6 +344,10 @@ export class OfficeBuilder {
     return this.getWorkstation(id)?.screenRenderer.getCanvas() ?? null
   }
 
+  getScreenState(id: string): ScreenState | null {
+    return this.getWorkstation(id)?.screenRenderer.getState() ?? null
+  }
+
   setScreenState(id: string, state: ScreenState | string): void {
     const ws = this.getWorkstation(id)
     if (!ws) return

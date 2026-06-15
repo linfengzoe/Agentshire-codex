@@ -55,9 +55,12 @@ export class ScreenRenderer {
 
   getCanvas(): HTMLCanvasElement | OffscreenCanvas { return this.canvas }
 
+  getState(): ScreenState { return this.state }
+
   setState(state: ScreenState): void {
     const sameMode = state.mode === this.state.mode
-    if (sameMode && (state.mode !== 'coding'
+    const sameMeta = JSON.stringify(state.meta ?? {}) === JSON.stringify(this.state.meta ?? {})
+    if (sameMode && sameMeta && (state.mode !== 'coding'
       || (state as { fileName: string }).fileName === (this.state as { fileName: string }).fileName)) return
     this.state = state
     this.elapsed = 0

@@ -20,11 +20,20 @@ describe('DirectorBridge workstation orchestration', () => {
     expect(assignment?.stationId).toBeTruthy()
     expect(emitted).toContainEqual({ type: 'scene_switch', target: 'office' })
     expect(emitted).toContainEqual({ type: 'mode_change', mode: 'work', workSubState: 'working' })
-    expect(emitted).toContainEqual({
+    expect(emitted).toContainEqual(expect.objectContaining({
       type: 'workstation_screen',
       stationId: assignment!.stationId,
-      state: { mode: 'coding', fileName: 'DirectorBridge.ts' },
-    })
+      state: expect.objectContaining({
+        mode: 'coding',
+        fileName: 'DirectorBridge.ts',
+        meta: expect.objectContaining({
+          stationId: assignment!.stationId,
+          npcId: 'steward',
+          toolName: 'apply_patch',
+          fileName: 'DirectorBridge.ts',
+        }),
+      }),
+    }))
   })
 
   it('marks solo Codex workstation done when the turn ends', () => {
@@ -67,11 +76,20 @@ describe('DirectorBridge workstation orchestration', () => {
     })
 
     const assignment = emitted.find((e): e is Extract<GameEvent, { type: 'workstation_assign' }> => e.type === 'workstation_assign' && e.npcId === 'steward')
-    expect(emitted).toContainEqual({
+    expect(emitted).toContainEqual(expect.objectContaining({
       type: 'workstation_screen',
       stationId: assignment!.stationId,
-      state: { mode: 'coding', fileName: 'ProjectDashboardTracker.ts' },
-    })
+      state: expect.objectContaining({
+        mode: 'coding',
+        fileName: 'ProjectDashboardTracker.ts',
+        meta: expect.objectContaining({
+          stationId: assignment!.stationId,
+          npcId: 'steward',
+          toolName: 'apply_patch',
+          fileName: 'ProjectDashboardTracker.ts',
+        }),
+      }),
+    }))
   })
 
   it('passes Bridge-assigned workstation ids into the office workflow', () => {
@@ -115,6 +133,37 @@ describe('DirectorBridge workstation orchestration', () => {
       expect.objectContaining({ npcId: 'citizen_2', stationId: expect.any(String) }),
     ])
     expect(goOffice?.agents[0].stationId).not.toBe(goOffice?.agents[1].stationId)
+  })
+
+  it('prefers citizens whose specialty matches the subagent role and task', () => {
+    const bridge = new DirectorBridge()
+    const emitted: GameEvent[] = []
+    bridge.onEmit(events => emitted.push(...events))
+    bridge.setTownConfig({
+      citizens: [
+        { id: 'citizen_frontend', name: '点点', specialty: '前端开发', persona: '擅长实现界面交互', avatarId: 'char-female-b' },
+        { id: 'citizen_qa', name: '辰', specialty: '数据分析与测试验证', persona: '负责回归验证和测试报告', avatarId: 'char-male-c' },
+        { id: 'citizen_arch', name: '岩', specialty: '架构设计', persona: '负责方案审查', avatarId: 'char-male-b' },
+      ],
+    })
+
+    bridge.processAgentEvent({
+      type: 'sub_agent',
+      subtype: 'started',
+      agentId: 'agent_verifier',
+      agentType: 'verifier',
+      parentToolUseId: 'spawn-qa',
+      task: '运行 vitest 回归测试并检查失败日志',
+      model: 'gpt-5',
+      displayName: 'Verifier',
+    })
+
+    expect(emitted).toContainEqual(expect.objectContaining({
+      type: 'npc_spawn',
+      npcId: 'citizen_qa',
+      name: '辰',
+      task: '运行 vitest 回归测试并检查失败日志',
+    }))
   })
 
   it('binds unknown subagents to idle configured citizens and shows task briefings', () => {
@@ -249,6 +298,7 @@ describe('DirectorBridge workstation orchestration', () => {
 
     const goOffice = emitted.find((e): e is Extract<GameEvent, { type: 'workflow_go_office' }> => e.type === 'workflow_go_office')
     const stationId = goOffice!.agents[0].stationId!
+    const npcId = goOffice!.agents[0].npcId
 
     bridge.processAgentEvent({
       type: 'sub_agent',
@@ -274,16 +324,41 @@ describe('DirectorBridge workstation orchestration', () => {
       },
     })
 
-    expect(emitted).toContainEqual({
+    expect(emitted).toContainEqual(expect.objectContaining({
       type: 'workstation_screen',
       stationId,
-      state: { mode: 'waiting', label: 'test' },
-    })
-    expect(emitted).toContainEqual({
+      state: expect.objectContaining({
+        mode: 'waiting',
+        label: 'test',
+        meta: expect.objectContaining({
+          stationId,
+          npcId,
+          displayName: expect.stringContaining('Verifier'),
+          role: 'Verifier',
+          task: 'run tests',
+          toolName: 'shell_command',
+          activity: 'npm test',
+          status: 'working',
+        }),
+      }),
+    }))
+    expect(emitted).toContainEqual(expect.objectContaining({
       type: 'workstation_screen',
       stationId,
-      state: { mode: 'error', label: 'command failed', detail: 'npm test' },
-    })
+      state: expect.objectContaining({
+        mode: 'error',
+        label: 'command failed',
+        detail: 'npm test',
+        meta: expect.objectContaining({
+          stationId,
+          npcId,
+          task: 'run tests',
+          toolName: 'shell_command',
+          activity: 'npm test',
+          status: 'failed',
+        }),
+      }),
+    }))
   })
 
   it('shows browser failure details on the assigned workstation screen', () => {
@@ -308,11 +383,21 @@ describe('DirectorBridge workstation orchestration', () => {
       meta: { exitCode: 1 },
     })
 
-    expect(emitted).toContainEqual({
+    expect(emitted).toContainEqual(expect.objectContaining({
       type: 'workstation_screen',
       stationId: assignment!.stationId,
-      state: { mode: 'error', label: 'browser error', detail: 'browser_snapshot' },
-    })
+      state: expect.objectContaining({
+        mode: 'error',
+        label: 'browser error',
+        detail: 'browser_snapshot',
+        meta: expect.objectContaining({
+          stationId: assignment!.stationId,
+          npcId: 'steward',
+          toolName: 'browser_snapshot',
+          status: 'failed',
+        }),
+      }),
+    }))
   })
 
   it('marks active subagents done when the Codex session ends', () => {

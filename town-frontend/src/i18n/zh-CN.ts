@@ -116,6 +116,28 @@ const zhCN: Record<string, string> = {
 
   // ── Screen ──
   'screen.analyzing': '分析中',
+  'screen.panel_title': '工位屏幕',
+  'screen.station': '工位',
+  'screen.assignee': '成员',
+  'screen.role': '身份',
+  'screen.task': '任务',
+  'screen.status': '状态',
+  'screen.file': '文件',
+  'screen.tool': '工具',
+  'screen.activity': '动态',
+  'screen.empty': '暂无',
+  'screen.close': '关闭工位屏幕',
+  'screen.status.unknown': '未知',
+  'screen.status.off': '空闲',
+  'screen.status.waiting': '等待中',
+  'screen.status.thinking': '思考中',
+  'screen.status.coding': '工作中',
+  'screen.status.done': '已完成',
+  'screen.status.error': '异常',
+  'screen.status.pending': '待开始',
+  'screen.status.working': '工作中',
+  'screen.status.completed': '已完成',
+  'screen.status.failed': '失败',
 
   // ── Skill panel ──
   'skill.equipped': '已获取',

@@ -1,6 +1,7 @@
 // @desc UIManager facade — initialises sub-panels and delegates public API
 
 import type { DialogMessage, NPCConfig } from '../types'
+import type { ScreenState, WorkstationScreenMeta } from '../data/GameProtocol'
 import type { CoverStyleId } from './CoverTemplates'
 import { buildAvatarEl } from './ui-utils'
 import { ChatPanel } from './ChatPanel'
@@ -52,6 +53,7 @@ export class UIManager {
   private workstationScreenOverlay: HTMLElement | null = null
   private workstationScreenMirrorCtx: CanvasRenderingContext2D | null = null
   private workstationScreenStationId: string | null = null
+  private workstationScreenDetailEl: HTMLElement | null = null
 
   init(): void {
     this.tabBtns = document.querySelectorAll('.tab-item')
@@ -221,7 +223,7 @@ export class UIManager {
     }
   }
 
-  showWorkstationScreen(stationId: string, sourceCanvas: HTMLCanvasElement | OffscreenCanvas): void {
+  showWorkstationScreen(stationId: string, sourceCanvas: HTMLCanvasElement | OffscreenCanvas, state?: ScreenState | null): void {
     this.workstationScreenStationId = stationId
     if (!this.workstationScreenOverlay) {
       const overlay = document.createElement('div')
@@ -235,10 +237,17 @@ export class UIManager {
 
       const container = document.createElement('div')
       Object.assign(container.style, {
-        position: 'relative', width: 'min(720px, 76vw)', aspectRatio: '256/160',
-        backgroundColor: '#0d1117', borderRadius: '8px', overflow: 'hidden',
-        boxShadow: '0 24px 56px rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)',
-        cursor: 'default',
+        position: 'relative', width: 'min(1040px, 88vw)',
+        background: 'rgba(30,30,30,0.96)', borderRadius: '20px', overflow: 'hidden',
+        boxShadow: '0 24px 56px rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.1)',
+        cursor: 'default', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gap: '0', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+      })
+
+      const screenFrame = document.createElement('div')
+      Object.assign(screenFrame.style, {
+        position: 'relative', backgroundColor: '#0d1117', aspectRatio: '256/160',
+        borderRight: '1px solid rgba(255,255,255,0.08)', minWidth: '0',
       })
 
       const canvas = document.createElement('canvas')
@@ -250,8 +259,15 @@ export class UIManager {
       })
       this.workstationScreenMirrorCtx = canvas.getContext('2d')
 
+      const details = document.createElement('div')
+      Object.assign(details.style, {
+        padding: '24px', color: '#eee', display: 'flex', flexDirection: 'column',
+        gap: '14px', minHeight: '260px',
+      })
+      this.workstationScreenDetailEl = details
+
       const closeBtn = document.createElement('button')
-      closeBtn.setAttribute('aria-label', 'Close workstation screen')
+      closeBtn.setAttribute('aria-label', t('screen.close'))
       const closeIcon = createLucideIcon('x', 16, '#e6edf3')
       if (closeIcon) closeBtn.appendChild(closeIcon)
       Object.assign(closeBtn.style, {
@@ -263,7 +279,9 @@ export class UIManager {
       closeBtn.onclick = () => this.hideWorkstationScreen()
       overlay.onclick = (e) => { if (e.target === overlay) this.hideWorkstationScreen() }
 
-      container.appendChild(canvas)
+      screenFrame.appendChild(canvas)
+      container.appendChild(screenFrame)
+      container.appendChild(details)
       container.appendChild(closeBtn)
       overlay.appendChild(container)
       document.body.appendChild(overlay)
@@ -277,7 +295,7 @@ export class UIManager {
     }
 
     this.workstationScreenOverlay.style.display = 'flex'
-    this.updateWorkstationScreenMirror(sourceCanvas)
+    this.updateWorkstationScreenMirror(sourceCanvas, state)
     requestAnimationFrame(() => {
       if (this.workstationScreenOverlay) this.workstationScreenOverlay.style.opacity = '1'
     })
@@ -298,10 +316,89 @@ export class UIManager {
     return this.workstationScreenStationId
   }
 
-  updateWorkstationScreenMirror(sourceCanvas: HTMLCanvasElement | OffscreenCanvas | null): void {
+  updateWorkstationScreenMirror(sourceCanvas: HTMLCanvasElement | OffscreenCanvas | null, state?: ScreenState | null): void {
     if (!sourceCanvas || this.workstationScreenOverlay?.style.display !== 'flex' || !this.workstationScreenMirrorCtx) return
     this.workstationScreenMirrorCtx.clearRect(0, 0, 256, 160)
     this.workstationScreenMirrorCtx.drawImage(sourceCanvas, 0, 0, 256, 160)
+    if (this.workstationScreenStationId) {
+      this.updateWorkstationScreenDetails(this.workstationScreenStationId, state ?? null)
+    }
+  }
+
+  updateWorkstationScreenDetails(stationId: string, state: ScreenState | null): void {
+    if (!this.workstationScreenDetailEl) return
+    const meta = state?.meta ?? {}
+    const rows = this.buildWorkstationScreenRows(stationId, state, meta)
+    this.workstationScreenDetailEl.replaceChildren()
+
+    const title = document.createElement('div')
+    Object.assign(title.style, {
+      display: 'flex', alignItems: 'center', gap: '8px', color: '#fff',
+      fontSize: '18px', fontWeight: '700',
+    })
+    const icon = createLucideIcon('monitor', 18, '#D4A574')
+    if (icon) title.appendChild(icon)
+    const titleText = document.createElement('span')
+    titleText.textContent = t('screen.panel_title')
+    title.appendChild(titleText)
+    this.workstationScreenDetailEl.appendChild(title)
+
+    const status = document.createElement('div')
+    Object.assign(status.style, {
+      alignSelf: 'flex-start', color: '#D4A574', border: '1px solid rgba(212,165,116,0.42)',
+      borderRadius: '999px', padding: '4px 10px', fontSize: '12px', fontWeight: '700',
+      background: 'rgba(212,165,116,0.1)',
+    })
+    status.textContent = this.screenStatusLabel(state)
+    this.workstationScreenDetailEl.appendChild(status)
+
+    const list = document.createElement('div')
+    Object.assign(list.style, {
+      display: 'grid', gap: '0', borderTop: '1px solid rgba(255,255,255,0.06)',
+    })
+    for (const [label, value] of rows) {
+      const row = document.createElement('div')
+      Object.assign(row.style, {
+        display: 'grid', gridTemplateColumns: '76px 1fr', gap: '12px',
+        padding: '11px 0', borderBottom: '1px solid rgba(255,255,255,0.06)',
+      })
+      const labelEl = document.createElement('div')
+      Object.assign(labelEl.style, { color: 'rgba(255,255,255,0.5)', fontSize: '12px' })
+      labelEl.textContent = label
+      const valueEl = document.createElement('div')
+      Object.assign(valueEl.style, {
+        color: 'rgba(255,255,255,0.88)', fontSize: '13px', lineHeight: '1.5',
+        overflowWrap: 'anywhere',
+      })
+      valueEl.textContent = value || t('screen.empty')
+      row.appendChild(labelEl)
+      row.appendChild(valueEl)
+      list.appendChild(row)
+    }
+    this.workstationScreenDetailEl.appendChild(list)
+  }
+
+  private buildWorkstationScreenRows(stationId: string, state: ScreenState | null, meta: WorkstationScreenMeta): Array<[string, string]> {
+    const fileName = meta.fileName || (state?.mode === 'coding' ? state.fileName : '')
+    return [
+      [t('screen.station'), meta.stationId || stationId],
+      [t('screen.assignee'), meta.displayName || meta.npcId || ''],
+      [t('screen.role'), [meta.role, meta.specialty].filter(Boolean).join(' · ')],
+      [t('screen.task'), meta.task || ''],
+      [t('screen.tool'), meta.toolName || ''],
+      [t('screen.file'), fileName],
+      [t('screen.activity'), meta.activity || (state?.mode === 'error' ? state.detail ?? '' : '')],
+    ]
+  }
+
+  private screenStatusLabel(state: ScreenState | null): string {
+    if (!state) return t('screen.status.unknown')
+    if (state.meta?.status) {
+      const key = `screen.status.${state.meta.status}`
+      const translated = t(key)
+      if (translated !== key) return translated
+    }
+    return t(`screen.status.${state.mode}`)
   }
 
   async fadeToBlack(ms = 300): Promise<void> {

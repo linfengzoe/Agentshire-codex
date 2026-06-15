@@ -293,7 +293,7 @@ export class WorkflowHandler {
     })
   }
 
-  async startOfficeWork(steward: NPC, npcs: NPC[], agentMeta: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole }> = []): Promise<void> {
+  async startOfficeWork(steward: NPC, npcs: NPC[], agentMeta: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole; displayName?: string; task?: string; specialty?: string }> = []): Promise<void> {
     const { npcManager, officeBuilder, modeManager } = this.deps
     const DOOR_POS = { x: 15, z: 24 }
     const SUPERVISOR = { steward: { x: 15, z: 12 }, mayor: { x: 18, z: 18 } }
@@ -303,8 +303,9 @@ export class WorkflowHandler {
     this.firstBatchNpcIds = new Set(npcs.map(n => n.id))
     const usedStations = new Set<string>()
     const roleByNpc = new Map(agentMeta.map(a => [a.npcId, a.role]))
+    const metaByNpc = new Map(agentMeta.map(a => [a.npcId, a]))
     const stationByNpc = new Map(agentMeta
-      .filter((a): a is { npcId: string; stationId: string; role?: CodexSubagentRole } => typeof a.stationId === 'string' && a.stationId.length > 0)
+      .filter((a): a is { npcId: string; stationId: string; role?: CodexSubagentRole; displayName?: string; task?: string; specialty?: string } => typeof a.stationId === 'string' && a.stationId.length > 0)
       .map(a => [a.npcId, a.stationId]))
     for (let i = 0; i < npcs.length; i++) {
       const preferredStation = stationByNpc.get(npcs[i].id)
@@ -377,7 +378,7 @@ export class WorkflowHandler {
       npc.moveTo(target, 4).then(() => {
         this.seatNpcAtWorkstation(npc, ws)
         npc.playAnim('typing')
-        officeBuilder.setScreenState(stationId, { mode: 'waiting' })
+        officeBuilder.setScreenState(stationId, this.buildWaitingScreenState(npc.id, stationId, metaByNpc.get(npc.id)))
         seated.add(npc.id)
         if (seated.size === npcs.length) {
           sendOfficeReadyOnce()
@@ -396,7 +397,7 @@ export class WorkflowHandler {
         if (ws) {
           this.seatNpcAtWorkstation(npc, ws)
           npc.playAnim('typing')
-          officeBuilder.setScreenState(sid, { mode: 'waiting' })
+          officeBuilder.setScreenState(sid, this.buildWaitingScreenState(npc.id, sid, metaByNpc.get(npc.id)))
           seated.add(npc.id)
         }
       }
@@ -711,6 +712,14 @@ export class WorkflowHandler {
       officeBuilder.setScreenState(stationId, {
         mode: a.status === 'completed' ? 'done' : a.status === 'failed' ? 'error' : 'coding',
         fileName: a.task,
+        meta: {
+          stationId,
+          npcId: a.npcId,
+          displayName: a.displayName,
+          role: a.role,
+          task: a.task,
+          status: a.status,
+        },
       })
     }
 
@@ -730,6 +739,26 @@ export class WorkflowHandler {
 
   private getOfficeWorkTarget(ws: { position: { x: number; z: number } }): { x: number; z: number } {
     return officeWorkTargetForStation(ws)
+  }
+
+  private buildWaitingScreenState(
+    npcId: string,
+    stationId: string,
+    meta?: { npcId: string; stationId?: string; role?: CodexSubagentRole; displayName?: string; task?: string; specialty?: string },
+  ): ScreenState {
+    return {
+      mode: 'waiting',
+      label: meta?.task || meta?.role || t('card.thinking'),
+      meta: {
+        stationId,
+        npcId,
+        displayName: meta?.displayName,
+        role: meta?.role,
+        specialty: meta?.specialty,
+        task: meta?.task,
+        status: 'working',
+      },
+    }
   }
 
   private getStationY(npc: NPC): number {

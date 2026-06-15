@@ -1,7 +1,7 @@
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 import { EventTranslator } from './EventTranslator.js'
-import type { CodexProjectPhase, GameEvent, NPCPhase, ScreenState } from '../../town-frontend/src/data/GameProtocol.js'
+import type { CodexProjectPhase, GameEvent, NPCPhase, ScreenState, WorkstationScreenMeta } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'
 import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
@@ -196,19 +196,53 @@ export class DirectorBridge {
     return this.townConfig?.citizens?.find((c: any) => c.id === npcId)
   }
 
-  private findIdleConfiguredCitizenId(): string | null {
+  private findIdleConfiguredCitizenId(role?: CodexSubagentRole, task = ''): string | null {
     const citizens = Array.isArray(this.townConfig?.citizens) ? this.townConfig.citizens : []
+    const candidates: Array<{ npcId: string; score: number }> = []
     for (const citizen of citizens) {
       const npcId = typeof citizen?.id === 'string' ? citizen.id : ''
       if (!npcId || npcId === 'steward' || npcId === 'user') continue
       if (this.tracker.resolveAgentId(npcId)) continue
       if ([...this.agents.values()].some(a => a.npcId === npcId && a.status !== 'completed' && a.status !== 'failed')) continue
-      return npcId
+      candidates.push({ npcId, score: this.scoreCitizenForCodexWork(citizen, role, task) })
     }
-    return null
+    if (candidates.length === 0) return null
+    candidates.sort((a, b) => b.score - a.score)
+    return candidates[0].npcId
   }
 
-  private resolveCitizenForAgent(displayName: string, rawName: string): string | null {
+  private scoreCitizenForCodexWork(citizen: any, role?: CodexSubagentRole, task = ''): number {
+    const text = [
+      citizen?.name,
+      citizen?.role,
+      citizen?.specialty,
+      citizen?.persona,
+      citizen?.description,
+      citizen?.bio,
+      task,
+    ].map(v => String(v ?? '').toLowerCase()).join(' ')
+
+    const roleKeywords: Record<CodexSubagentRole, string[]> = {
+      Explorer: ['架构', '规划', '产品', '数据', '分析', '调研', '阅读', '侦察', 'research', 'inspect', 'explore', 'architect', 'product', 'planning', 'analysis'],
+      Worker: ['前端', '后端', '开发', '工程', '实现', '编程', '代码', 'frontend', 'backend', 'developer', 'engineer', 'implementation', 'coding'],
+      Reviewer: ['审查', '审核', '复核', '架构', '质量', 'review', 'code review', 'audit', 'architecture', 'quality'],
+      Verifier: ['测试', '验证', '回归', 'qa', '验收', '构建', 'test', 'verify', 'verification', 'check', 'build', 'lint'],
+    }
+    const keywords = role ? roleKeywords[role] : []
+    let score = 0
+    for (const keyword of keywords) {
+      if (text.includes(keyword.toLowerCase())) score += 10
+    }
+
+    const taskWords = task.toLowerCase().split(/[\s,，。:：/\\|()[\]{}"'`]+/).filter(word => word.length >= 2)
+    for (const word of taskWords) {
+      if (text.includes(word)) score += 2
+    }
+
+    return score
+  }
+
+  private resolveCitizenForAgent(displayName: string, rawName: string, role?: CodexSubagentRole, task = ''): string | null {
     let citizenNpcId = this.citizens.findCitizenNpcId(displayName) ?? this.citizens.findCitizenNpcId(rawName)
     if (!citizenNpcId) {
       citizenNpcId = this.citizens.fuzzyMatchCitizen(displayName) ?? this.citizens.fuzzyMatchCitizen(rawName)
@@ -216,7 +250,7 @@ export class DirectorBridge {
     if (citizenNpcId && this.tracker.resolveAgentId(citizenNpcId)) {
       citizenNpcId = null
     }
-    return citizenNpcId ?? this.findIdleConfiguredCitizenId()
+    return citizenNpcId ?? this.findIdleConfiguredCitizenId(role, task)
   }
 
   /** Handle a GameAction from the frontend (user message, abort, door click, move ack) */
@@ -274,7 +308,17 @@ export class DirectorBridge {
           const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
           this.emit([
             { type: 'mode_change', mode: 'work', workSubState: 'going_to_office' },
-            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId, stationId: this.ensureWorkstationForNpc(a.npcId, a.collaborationRole, false) ?? undefined, role: a.collaborationRole })) } as GameEvent,
+            { type: 'workflow_go_office', agents: agents.map(a => {
+              const configured = this.getConfiguredCitizen(a.npcId)
+              return {
+                npcId: a.npcId,
+                stationId: this.ensureWorkstationForNpc(a.npcId, a.collaborationRole, false) ?? undefined,
+                role: a.collaborationRole,
+                displayName: a.displayName,
+                task: a.task,
+                specialty: configured?.specialty,
+              }
+            }) } as GameEvent,
           ])
         } else if (completedPhase === 'going_to_office' && this.phase === 'going_to_office') {
           this.phase = 'working'
@@ -374,7 +418,7 @@ export class DirectorBridge {
       const rawName = a.displayName ?? a.id.replace(/^agent_/, '')
       let displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
       const collaborationRole = inferCodexSubagentRole('', a.task ?? '', displayName)
-      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName)
+      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName, collaborationRole, a.task ?? '')
       let npcId = citizenNpcId ?? a.id.replace(/^agent_/, '')
       if (npcId === 'steward' || npcId === 'user') {
         npcId = `temp_${a.id.replace(/^agent_/, '').slice(0, 8)}_${Date.now().toString(36)}`
@@ -717,10 +761,60 @@ export class DirectorBridge {
     return { mode: 'thinking' }
   }
 
+  private describeToolActivity(toolName: string, input: Record<string, unknown>): string {
+    if (toolName === 'bash' || toolName === 'shell_command') {
+      return String(input.command ?? '').trim()
+    }
+    const filePath = extractFilePath(toolName, input)
+    if (filePath) return filePath
+    if (toolName === 'apply_patch') return 'apply_patch'
+    return toolName
+  }
+
+  private workstationMetaForNpc(npcId: string, patch: Partial<WorkstationScreenMeta> = {}): WorkstationScreenMeta {
+    const info = [...this.agents.values()].find(a => a.npcId === npcId)
+    const configured = this.getConfiguredCitizen(npcId)
+    const stationId = patch.stationId ?? this.tracker.getStationForNpc(npcId) ?? undefined
+    const fileName = patch.fileName
+    return {
+      stationId,
+      npcId,
+      displayName: patch.displayName ?? configured?.name ?? info?.displayName ?? (npcId === this.stewardName ? (this.personaName || 'shire') : npcId),
+      role: patch.role ?? info?.collaborationRole,
+      specialty: patch.specialty ?? configured?.specialty,
+      task: patch.task ?? info?.task ?? this.pendingProjectName,
+      status: patch.status ?? info?.status ?? 'working',
+      toolName: patch.toolName,
+      fileName,
+      activity: patch.activity,
+    }
+  }
+
+  private withWorkstationMeta(npcId: string, state: ScreenState, patch: Partial<WorkstationScreenMeta> = {}): ScreenState {
+    const stateFileName = state.mode === 'coding' ? state.fileName : undefined
+    return {
+      ...state,
+      meta: this.workstationMetaForNpc(npcId, {
+        fileName: stateFileName,
+        ...patch,
+      }),
+    } as ScreenState
+  }
+
   private emitWorkstationScreenForTool(npcId: string, toolName: string, input: Record<string, unknown> = {}): void {
     const stationId = this.tracker.getStationForNpc(npcId)
     if (!stationId) return
-    this.emit([{ type: 'workstation_screen', stationId, state: this.screenStateForTool(toolName, input) }])
+    const state = this.screenStateForTool(toolName, input)
+    this.emit([{
+      type: 'workstation_screen',
+      stationId,
+      state: this.withWorkstationMeta(npcId, state, {
+        stationId,
+        toolName,
+        activity: this.describeToolActivity(toolName, input),
+        status: 'working',
+      }),
+    }])
   }
 
   private emitWorkstationScreenForResult(npcId: string, toolName: string, input: Record<string, unknown>, success: boolean): void {
@@ -730,7 +824,16 @@ export class DirectorBridge {
     this.emit([{
       type: 'workstation_screen',
       stationId,
-      state: success ? { mode: 'done' } : this.screenErrorStateForTool(toolName, input),
+      state: this.withWorkstationMeta(
+        npcId,
+        success ? { mode: 'done' } : this.screenErrorStateForTool(toolName, input),
+        {
+          stationId,
+          toolName,
+          activity: this.describeToolActivity(toolName, input),
+          status: success ? 'completed' : 'failed',
+        },
+      ),
     }])
   }
 
@@ -951,7 +1054,7 @@ export class DirectorBridge {
       const extra = event as Extract<AgentEvent, { type: 'sub_agent'; subtype: 'started' }> & { avatarId?: string; metadata?: { avatarId?: string } }
       let avatarId = extra.avatarId ?? extra.metadata?.avatarId ?? undefined
 
-      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName)
+      const citizenNpcId = this.resolveCitizenForAgent(displayName, rawName, collaborationRole, task)
       const configuredCitizen = citizenNpcId ? this.getConfiguredCitizen(citizenNpcId) : undefined
 
       if (!citizenNpcId && this.citizens.looksLikeIdFragment(displayName)) {
@@ -1229,6 +1332,11 @@ export class DirectorBridge {
     if (stationId) this.tracker.setStationForNpc(info.npcId, stationId)
     this.emit([
       { type: 'workstation_assign', npcId: info.npcId, stationId: stationId ?? '' },
+      ...(stationId ? [{
+        type: 'workstation_screen',
+        stationId,
+        state: this.withWorkstationMeta(info.npcId, { mode: 'waiting', label: info.task || info.displayName }, { stationId, status: 'working' }),
+      } as GameEvent] : []),
     ])
   }
 

@@ -26,13 +26,28 @@ export type NPCPhase =
 
 // ── Workstation screen ──
 
+export interface WorkstationScreenMeta {
+  stationId?: string
+  npcId?: string
+  displayName?: string
+  role?: string
+  specialty?: string
+  task?: string
+  status?: string
+  toolName?: string
+  fileName?: string
+  activity?: string
+}
+
+type ScreenStateMeta = { meta?: WorkstationScreenMeta }
+
 export type ScreenState =
-  | { mode: 'off' }
-  | { mode: 'waiting'; label?: string }
-  | { mode: 'thinking' }
-  | { mode: 'coding'; fileName: string }
-  | { mode: 'done' }
-  | { mode: 'error'; label?: string; detail?: string }
+  | ({ mode: 'off' } & ScreenStateMeta)
+  | ({ mode: 'waiting'; label?: string } & ScreenStateMeta)
+  | ({ mode: 'thinking' } & ScreenStateMeta)
+  | ({ mode: 'coding'; fileName: string } & ScreenStateMeta)
+  | ({ mode: 'done' } & ScreenStateMeta)
+  | ({ mode: 'error'; label?: string; detail?: string } & ScreenStateMeta)
 
 // ── Codex project dashboard ──
 
@@ -168,7 +183,7 @@ export type GameEvent =
   // Workflow intent events (Bridge → Choreographer)
   | { type: 'workflow_summon'; agents: Array<{ npcId: string; displayName: string; task: string; role?: CodexSubagentRole }> }
   | { type: 'workflow_assign'; agents: Array<{ npcId: string; displayName: string; task: string; role?: CodexSubagentRole }> }
-  | { type: 'workflow_go_office'; agents: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole }> }
+  | { type: 'workflow_go_office'; agents: Array<{ npcId: string; stationId?: string; role?: CodexSubagentRole; displayName?: string; task?: string; specialty?: string }> }
   | { type: 'workflow_publish'; summary: string; deliverableCards: unknown[]; agents: Array<{ npcId: string; displayName: string; status: string; role?: CodexSubagentRole }> }
   | { type: 'workflow_return'; agents: Array<{ npcId: string; role?: CodexSubagentRole }>; wasInOffice: boolean }
 

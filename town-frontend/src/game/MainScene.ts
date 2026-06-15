@@ -1513,7 +1513,7 @@ __workflow 演出测试指令:
       if (curSceneType === 'office') {
         const screenHit = this.officeBuilder.getScreenHit(raycaster)
         if (screenHit) {
-          this.ui.showWorkstationScreen(screenHit.id, screenHit.screenRenderer.getCanvas())
+          this.ui.showWorkstationScreen(screenHit.id, screenHit.screenRenderer.getCanvas(), screenHit.screenRenderer.getState())
           return
         }
 
@@ -1801,7 +1801,7 @@ __workflow 演出测试指令:
       this.ui.updateWhiteboardMirror(this.officeBuilder.whiteboard.getCanvas())
       const openStationId = this.ui.getOpenWorkstationScreenId()
       if (openStationId) {
-        this.ui.updateWorkstationScreenMirror(this.officeBuilder.getScreenCanvas(openStationId))
+        this.ui.updateWorkstationScreenMirror(this.officeBuilder.getScreenCanvas(openStationId), this.officeBuilder.getScreenState(openStationId))
       }
     }
     this._minigameUpdateCb?.(deltaTime)
